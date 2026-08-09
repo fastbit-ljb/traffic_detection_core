@@ -62,9 +62,10 @@ RUN mkdir -p /app/models /app/uploads /app/output_images /app/logs /app/static \
 
 # Copy application code
 COPY --chown=traffic:traffic ./app ./app
-# Bundle the default local model so an offline production image can start
-# without fetching weights at runtime.
-COPY --chown=traffic:traffic ./yolov8n.pt ./yolov8n.pt
+# Pre-download default model weights into ./models (model_cache_directory)
+# so the offline production image can start without fetching at runtime.
+ENV ULTRALYTICS_CACHE_DIR=/app/models
+RUN python -c "from ultralytics import YOLO; YOLO('yolov8n.pt')"
 
 # Switch to non-root user
 USER traffic
