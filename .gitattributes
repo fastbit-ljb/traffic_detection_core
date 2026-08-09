@@ -1,0 +1,4 @@
+backend/yolov8n.pt filter=lfs diff=lfs merge=lfs -text
+backend/models/yolov8s.pt filter=lfs diff=lfs merge=lfs -text
+backend/models/yolov8m.pt filter=lfs diff=lfs merge=lfs -text
+backend/models/trained_28068449.pt filter=lfs diff=lfs merge=lfs -text
