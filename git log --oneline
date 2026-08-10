@@ -1,0 +1,36 @@
+[33mcommit 1b1ab4fd2e0e168810f9bf37417722b1b0ab7bdd[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mmain[m[33m, [m[1;31morigin/main[m[33m)[m
+Author: fastbit-ljb <fsrsertsfwhdydteyge83@gmail.com>
+Date:   Mon Aug 10 12:17:13 2026 -0700
+
+    docs: update README - remove stale sample refs, clarify model auto-download
+
+[33mcommit b70124821706cd70312b3edae045536ddb44614e[m
+Author: fastbit-ljb <fsrsertsfwhdydteyge83@gmail.com>
+Date:   Sun Aug 9 16:08:44 2026 -0700
+
+    chore: remove sample data files from repo
+    
+    ny_traffic.mp4 and traffic_training_sample.zip are demo assets,
+    not referenced by code. Keep repo lean.
+
+[33mcommit a48e9bd23d09918535b4358dd6614ac7ba30c4cc[m
+Author: fastbit-ljb <fsrsertsfwhdydteyge83@gmail.com>
+Date:   Sun Aug 9 15:10:12 2026 -0700
+
+    chore: remove yolov8n.pt from git, auto-download at runtime
+    
+    - Add /backend/yolov8n.pt to .gitignore
+    - Dockerfile: pre-download during build via ULTRALYTICS_CACHE_DIR
+    - Model loads from cache directory on startup, no manual fetch needed
+
+[33mcommit bcd21bdcd3fb901e7929e9cf586b28cc33dc3a95[m
+Author: fastbit-ljb <fsrsertsfwhdydteyge83@gmail.com>
+Date:   Sun Aug 9 15:07:16 2026 -0700
+
+    feat: initial commit - 智能交通检测系统
+    
+    毕设项目完整初始化:
+    - backend: FastAPI + YOLOv8 车辆检测服务
+    - frontend: React + TypeScript 可视化面板
+    - docs: 论文、答辩PPT、API文档
+    - samples: 训练样本和测试视频
