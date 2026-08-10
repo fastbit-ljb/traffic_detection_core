@@ -6,10 +6,7 @@
 
 - `backend/app/`：FastAPI 后端、检测、视频任务、训练、模型对比和历史删除实现。
 - `frontend/src/`：React 前端界面与交互实现。
-- `backend/yolov8n.pt`、`backend/models/`：YOLOv8n、YOLOv8s、YOLOv8m 与一个交通车辆自训练样例，共 4 个模型。
-- `samples/ny_traffic.mp4`：视频检测演示样本。
-- `samples/traffic_training_sample.zip`：交通目标训练集样本，可在界面中导入并训练。
-- `experiments/results/`：实验报告、图表、指标 CSV/JSON；不包含重复权重文件。
+- `backend/models/`：YOLOv8n、YOLOv8s、YOLOv8m 与一个交通车辆自训练样例，共 4 个模型（首次启动自动下载官方预训练权重）。
 - `deliverables/`：毕业设计报告和答辩演示文稿。
 - `docs/`：部署、接口、演示和论文写作说明。
 
