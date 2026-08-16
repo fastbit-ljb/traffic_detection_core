@@ -47,7 +47,7 @@ cd /opt/traffic_detection_core
 sudo bash deploy/cpu-server/enable-https.sh your-email@example.com dnsgo.xyz www.dnsgo.xyz
 ```
 
-Open `https://dnsgo.xyz` after the command completes. Later project updates should use the domain names rather than the public IP so that the HTTPS configuration and trusted host settings are retained:
+If TCP 443 is already occupied by another service, the script automatically selects TCP 8443 and prints the port in its final message. Open the printed HTTPS URL, such as `https://dnsgo.xyz:8443`. Add the selected port to the cloud security group. Later project updates should use the domain names rather than the public IP so that the HTTPS configuration and trusted host settings are retained:
 
 ```bash
 bash deploy/cpu-server/deploy.sh dnsgo.xyz www.dnsgo.xyz

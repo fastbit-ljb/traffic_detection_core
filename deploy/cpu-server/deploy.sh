@@ -17,12 +17,24 @@ nginx_site="/etc/nginx/sites-available/traffic-detection"
 certificate_dir="/etc/letsencrypt/live/$server_name"
 nginx_template="$deploy_dir/nginx-traffic-detection.conf.template"
 public_scheme="http"
+https_port="443"
+
+if [[ -f "$env_file" ]]; then
+  configured_https_port="$(sed -n 's/^TRAFFIC_HTTPS_PORT=//p' "$env_file" | tail -n 1)"
+  if [[ "$configured_https_port" =~ ^[0-9]+$ ]]; then
+    https_port="$configured_https_port"
+  fi
+fi
 
 if sudo test -f "$certificate_dir/fullchain.pem" && sudo test -f "$certificate_dir/privkey.pem"; then
   nginx_template="$deploy_dir/nginx-traffic-detection-https.conf.template"
   public_scheme="https"
 fi
 public_origin="$public_scheme://$server_name"
+https_redirect_origin='https://$host'
+if [[ "$https_port" != "443" ]]; then
+  https_redirect_origin="https://\$host:$https_port"
+fi
 
 command -v docker >/dev/null || { echo "Docker is required."; exit 1; }
 docker compose version >/dev/null || { echo "Docker Compose plugin is required."; exit 1; }
@@ -56,6 +68,7 @@ set_env_value() {
 
 set_env_value "TRAFFIC_ALLOWED_ORIGINS" "$public_origin"
 set_env_value "TRAFFIC_ALLOWED_HOSTS" "$allowed_hosts"
+set_env_value "TRAFFIC_HTTPS_PORT" "$https_port"
 
 compose=(docker compose --env-file "$env_file" -f "$deploy_dir/docker-compose.cpu.yml")
 "${compose[@]}" build api
@@ -88,6 +101,8 @@ sudo install -d -m 755 /var/www/certbot
 sed \
   -e "s|__SERVER_NAMES__|$server_name_list|g" \
   -e "s|__CERTIFICATE_NAME__|$server_name|g" \
+  -e "s|__HTTPS_PORT__|$https_port|g" \
+  -e "s|__HTTPS_REDIRECT_ORIGIN__|$https_redirect_origin|g" \
   "$nginx_template" | \
   sudo tee "$nginx_site" >/dev/null
 sudo ln -sfn "$nginx_site" /etc/nginx/sites-enabled/traffic-detection

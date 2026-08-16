@@ -30,6 +30,32 @@ if [[ ! -f "$certificate_dir/fullchain.pem" ]]; then
   certbot "${certbot_args[@]}"
 fi
 
+env_file="$project_dir/deploy/cpu-server/.env.production"
+configured_https_port="$(sed -n 's/^TRAFFIC_HTTPS_PORT=//p' "$env_file" | tail -n 1)"
+if [[ "$configured_https_port" =~ ^[0-9]+$ ]]; then
+  https_port="$configured_https_port"
+  if [[ "$https_port" == "443" ]]; then
+    listener="$(ss -ltnp 2>/dev/null | grep -E '(:|\])443[[:space:]]' || true)"
+    if [[ -n "$listener" ]] && ! grep -q 'nginx' <<<"$listener"; then
+      echo "TCP 443 is already in use by another service; selecting TCP 8443 for traffic detection HTTPS."
+      https_port="8443"
+    fi
+  fi
+else
+  listener="$(ss -ltnp 2>/dev/null | grep -E '(:|\])443[[:space:]]' || true)"
+  if [[ -n "$listener" ]] && ! grep -q 'nginx' <<<"$listener"; then
+    echo "TCP 443 is already in use by another service; selecting TCP 8443 for traffic detection HTTPS."
+    https_port="8443"
+  else
+    https_port="443"
+  fi
+fi
+if grep -q '^TRAFFIC_HTTPS_PORT=' "$env_file"; then
+  sed -i "s|^TRAFFIC_HTTPS_PORT=.*|TRAFFIC_HTTPS_PORT=$https_port|" "$env_file"
+else
+  printf '\nTRAFFIC_HTTPS_PORT=%s\n' "$https_port" >> "$env_file"
+fi
+
 install -d -m 755 /etc/letsencrypt/renewal-hooks/deploy
 cat > /etc/letsencrypt/renewal-hooks/deploy/reload-traffic-nginx <<'EOF'
 #!/usr/bin/env bash
@@ -38,4 +64,8 @@ EOF
 chmod 755 /etc/letsencrypt/renewal-hooks/deploy/reload-traffic-nginx
 systemctl enable --now certbot.timer
 bash "$deploy_script" "${domains[@]}"
-echo "HTTPS enabled: https://$primary_domain"
+if [[ "$https_port" == "443" ]]; then
+  echo "HTTPS enabled: https://$primary_domain"
+else
+  echo "HTTPS enabled: https://$primary_domain:$https_port"
+fi

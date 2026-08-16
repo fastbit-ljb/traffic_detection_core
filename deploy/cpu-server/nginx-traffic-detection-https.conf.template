@@ -9,12 +9,12 @@ server {
     }
 
     location / {
-        return 301 https://$host$request_uri;
+        return 301 __HTTPS_REDIRECT_ORIGIN__$request_uri;
     }
 }
 
 server {
-    listen 443 ssl;
+    listen __HTTPS_PORT__ ssl;
     server_name __SERVER_NAMES__;
     client_max_body_size 512m;
 
