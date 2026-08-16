@@ -61,7 +61,9 @@ sudo ln -sfn "$nginx_site" /etc/nginx/sites-enabled/traffic-detection
 sudo nginx -t
 sudo systemctl reload nginx
 
-health_response="$(curl --fail --retry 10 --retry-delay 2 "http://127.0.0.1:8000/health")"
+# A just-created Uvicorn process can reset its first connection while loading.
+# Retry every curl failure instead of treating that transient reset as a deploy failure.
+health_response="$(curl --fail --retry 10 --retry-all-errors --retry-delay 2 "http://127.0.0.1:8000/health")"
 if ! grep -q '"status":"healthy"' <<<"$health_response"; then
   echo "API started but its services are not ready: $health_response" >&2
   exit 1
