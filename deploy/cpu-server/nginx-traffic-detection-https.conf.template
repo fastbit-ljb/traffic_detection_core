@@ -3,13 +3,27 @@ server {
     server_name __SERVER_NAMES__;
     client_max_body_size 512m;
 
-    root /var/www/traffic-detection;
-    index index.html;
-
     location ^~ /.well-known/acme-challenge/ {
         root /var/www/certbot;
         default_type text/plain;
     }
+
+    location / {
+        return 301 https://$host$request_uri;
+    }
+}
+
+server {
+    listen 443 ssl;
+    server_name __SERVER_NAMES__;
+    client_max_body_size 512m;
+
+    ssl_certificate /etc/letsencrypt/live/__CERTIFICATE_NAME__/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/__CERTIFICATE_NAME__/privkey.pem;
+    ssl_protocols TLSv1.2 TLSv1.3;
+
+    root /var/www/traffic-detection;
+    index index.html;
 
     location /api/ {
         proxy_pass http://127.0.0.1:8000;

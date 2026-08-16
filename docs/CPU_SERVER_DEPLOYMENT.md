@@ -38,6 +38,21 @@ Open `http://43.108.38.230` after the command reports success.
 
 Video processing is available over HTTP. Browser camera access requires a secure context, so use HTTPS with a real domain for remote real-time camera detection; `localhost` development access is also accepted by browsers.
 
+## HTTPS
+
+Point the domain's A record to the server before enabling HTTPS. In the cloud security group, allow TCP 443 in addition to TCP 80. The following command obtains a Let's Encrypt certificate for both the primary domain and its alias, changes Nginx to HTTPS, redirects HTTP traffic, and enables certificate renewal.
+
+```bash
+cd /opt/traffic_detection_core
+sudo bash deploy/cpu-server/enable-https.sh your-email@example.com dnsgo.xyz www.dnsgo.xyz
+```
+
+Open `https://dnsgo.xyz` after the command completes. Later project updates should use the domain names rather than the public IP so that the HTTPS configuration and trusted host settings are retained:
+
+```bash
+bash deploy/cpu-server/deploy.sh dnsgo.xyz www.dnsgo.xyz
+```
+
 ## Update
 
 ```bash

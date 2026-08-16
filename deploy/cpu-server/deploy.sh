@@ -1,18 +1,28 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-if [[ $# -ne 1 ]]; then
-  echo "Usage: bash deploy/cpu-server/deploy.sh <public-ip-or-domain>"
+if [[ $# -lt 1 ]]; then
+  echo "Usage: bash deploy/cpu-server/deploy.sh <public-ip-or-domain> [domain-alias ...]"
   exit 1
 fi
 
-server_name="$1"
+server_names=("$@")
+server_name="${server_names[0]}"
+server_name_list="${server_names[*]}"
 project_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 deploy_dir="$project_dir/deploy/cpu-server"
 env_file="$deploy_dir/.env.production"
 site_root="/var/www/traffic-detection"
 nginx_site="/etc/nginx/sites-available/traffic-detection"
-public_origin="http://$server_name"
+certificate_dir="/etc/letsencrypt/live/$server_name"
+nginx_template="$deploy_dir/nginx-traffic-detection.conf.template"
+public_scheme="http"
+
+if sudo test -f "$certificate_dir/fullchain.pem" && sudo test -f "$certificate_dir/privkey.pem"; then
+  nginx_template="$deploy_dir/nginx-traffic-detection-https.conf.template"
+  public_scheme="https"
+fi
+public_origin="$public_scheme://$server_name"
 
 command -v docker >/dev/null || { echo "Docker is required."; exit 1; }
 docker compose version >/dev/null || { echo "Docker Compose plugin is required."; exit 1; }
@@ -22,19 +32,30 @@ if [[ ! -f "$env_file" ]]; then
   secret="$(openssl rand -hex 32)"
   sed \
     -e "s|__PUBLIC_ORIGIN__|$public_origin|" \
-    -e "s|__SERVER_NAME__|$server_name|" \
+    -e "s|__SERVER_NAMES__|$server_name_list|" \
     -e "s|__GENERATE_ON_DEPLOY__|$secret|" \
     "$deploy_dir/.env.production.template" > "$env_file"
   chmod 600 "$env_file"
   echo "Created $env_file. Keep this file private."
 fi
 
-allowed_hosts="localhost,127.0.0.1,$server_name"
-if grep -q '^TRAFFIC_ALLOWED_HOSTS=' "$env_file"; then
-  sed -i "s|^TRAFFIC_ALLOWED_HOSTS=.*|TRAFFIC_ALLOWED_HOSTS=$allowed_hosts|" "$env_file"
-else
-  printf '\nTRAFFIC_ALLOWED_HOSTS=%s\n' "$allowed_hosts" >> "$env_file"
-fi
+allowed_hosts="localhost,127.0.0.1"
+for host in "${server_names[@]}"; do
+  allowed_hosts+=",$host"
+done
+
+set_env_value() {
+  local key="$1"
+  local value="$2"
+  if grep -q "^${key}=" "$env_file"; then
+    sed -i "s|^${key}=.*|${key}=${value}|" "$env_file"
+  else
+    printf '\n%s=%s\n' "$key" "$value" >> "$env_file"
+  fi
+}
+
+set_env_value "TRAFFIC_ALLOWED_ORIGINS" "$public_origin"
+set_env_value "TRAFFIC_ALLOWED_HOSTS" "$allowed_hosts"
 
 compose=(docker compose --env-file "$env_file" -f "$deploy_dir/docker-compose.cpu.yml")
 "${compose[@]}" build api
@@ -63,7 +84,11 @@ sudo rm -rf "$site_root"/*
 docker cp "$frontend_container:/usr/share/nginx/html/." "$site_root"
 docker rm "$frontend_container" >/dev/null
 
-sed "s|__SERVER_NAME__|$server_name|g" "$deploy_dir/nginx-traffic-detection.conf.template" | \
+sudo install -d -m 755 /var/www/certbot
+sed \
+  -e "s|__SERVER_NAMES__|$server_name_list|g" \
+  -e "s|__CERTIFICATE_NAME__|$server_name|g" \
+  "$nginx_template" | \
   sudo tee "$nginx_site" >/dev/null
 sudo ln -sfn "$nginx_site" /etc/nginx/sites-enabled/traffic-detection
 sudo nginx -t
