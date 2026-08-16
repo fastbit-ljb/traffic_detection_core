@@ -19,7 +19,6 @@ RUN apt-get update && apt-get install -y \
     libgomp1 \
     libglib2.0-0 \
     libgl1 \
-    libgthread-2.0-0 \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
@@ -47,7 +46,6 @@ RUN apt-get update && apt-get install -y \
     libxrender-dev \
     libgomp1 \
     libgl1 \
-    libgthread-2.0-0 \
     curl \
     && rm -rf /var/lib/apt/lists/* \
     && apt-get clean
