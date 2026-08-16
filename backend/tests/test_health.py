@@ -168,6 +168,8 @@ class TestHealthEndpoint:
         service_fields = ["vehicle_detector", "traffic_manager", "analytics"]
         for field in service_fields:
             assert field in data["services"]
+
+        assert response.headers["permissions-policy"] == "geolocation=(), microphone=(), camera=(self)"
         
         # Check system structure  
         system_fields = ["cpu_percent", "memory_percent", "memory_bytes"]

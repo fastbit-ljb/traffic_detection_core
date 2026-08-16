@@ -501,6 +501,9 @@ export function TrafficDashboard() {
 
   const startCamera = async () => {
     try {
+      if (!window.isSecureContext || !navigator.mediaDevices?.getUserMedia) {
+        throw new Error('摄像头实时检测需要通过 HTTPS 或本机 localhost 访问当前页面');
+      }
       const stream = await navigator.mediaDevices.getUserMedia({
         video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } },
         audio: false,
