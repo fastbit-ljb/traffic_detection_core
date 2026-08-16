@@ -155,6 +155,7 @@ function Install-TorchRuntime {
     }
 
     Write-Host "Installing PyTorch runtime: $($runtime.Description) [$($runtime.Channel)]"
+    # CUDA 通道用 curl 直下官方 wheel（R2 CDN，可断点续传）；CPU 通道的 pip 走清华 PyPI 镜像加速
     $torchIndex = "https://download.pytorch.org/whl/$($runtime.Channel)"
     if ($runtime.Channel -like 'cu*') {
         # CUDA wheels are several gigabytes. Downloading with curl preserves partial data,
@@ -173,23 +174,27 @@ function Install-TorchRuntime {
             Remove-Item -LiteralPath $torchWheel, $torchvisionWheel -Force -ErrorAction SilentlyContinue
         }
     } else {
-        & $PythonExe -m pip install --upgrade --force-reinstall --no-cache-dir --timeout 1200 --retries 5 'torch==2.5.1' 'torchvision==0.20.1' --index-url $torchIndex | Out-Host
+        # Windows 的 PyPI torch 就是 CPU 构建（CUDA 版只在 download.pytorch.org 的 +cu 通道），走清华源国内直连最快
+        & $PythonExe -m pip install --upgrade --force-reinstall --no-cache-dir --timeout 1200 --retries 5 'torch==2.5.1' 'torchvision==0.20.1' --index-url 'https://pypi.tuna.tsinghua.edu.cn/simple' | Out-Host
     }
     if ($LASTEXITCODE -ne 0) { throw 'Failed to install the PyTorch runtime.' }
     Set-Content -LiteralPath $runtimeStamp -Value $runtimeSignature -NoNewline
 }
 
 function Install-BackendDependencies {
-    if ($UseSystemCuda) {
+    # Auto mode reuses a complete system CUDA environment when available. This
+    # avoids downloading another multi-gigabyte PyTorch wheel on developer PCs.
+    if ($UseSystemCuda -or $InferenceRuntime -eq 'Auto') {
         $systemPython = (Get-Command python -ErrorAction Stop).Source
         $cudaDetails = (& $systemPython -c "import torch, fastapi, uvicorn, ultralytics, cv2; assert torch.cuda.is_available(); print(f'{torch.__version__}; CUDA {torch.version.cuda}; {torch.cuda.get_device_name(0)}')" 2>&1 | Out-String).Trim()
-        if ($LASTEXITCODE -ne 0) {
+        if ($LASTEXITCODE -eq 0) {
+            $env:TRAFFIC_ENABLE_GPU_ACCELERATION = 'true'
+            Write-Host "Using existing system CUDA runtime: $cudaDetails"
+            return $systemPython
+        }
+        if ($UseSystemCuda) {
             throw "System CUDA Python cannot run this project. $cudaDetails"
         }
-
-        $env:TRAFFIC_ENABLE_GPU_ACCELERATION = 'true'
-        Write-Host "Using existing system CUDA runtime: $cudaDetails"
-        return $systemPython
     }
 
     $venvDirectory = Join-Path $backendDir '.venv'
@@ -216,7 +221,7 @@ function Install-BackendDependencies {
         Write-Host 'Installing backend dependencies...'
         & $venvPython -m pip install --upgrade pip | Out-Host
         if ($LASTEXITCODE -ne 0) { throw 'Failed to upgrade pip.' }
-        & $venvPython -m pip install -r $requirementsFile | Out-Host
+        & $venvPython -m pip install -r $requirementsFile --index-url 'https://pypi.tuna.tsinghua.edu.cn/simple' | Out-Host
         if ($LASTEXITCODE -ne 0) { throw 'Failed to install backend dependencies.' }
         Set-Content -LiteralPath $requirementsStamp -Value $requirementsHash -NoNewline
     }

@@ -504,10 +504,20 @@ export function TrafficDashboard() {
       if (!window.isSecureContext || !navigator.mediaDevices?.getUserMedia) {
         throw new Error('摄像头实时检测需要通过 HTTPS 或本机 localhost 访问当前页面');
       }
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } },
-        audio: false,
-      });
+      let stream: MediaStream;
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } },
+          audio: false,
+        });
+      } catch (error) {
+        const errorName = error instanceof DOMException ? error.name : '';
+        if (!['NotFoundError', 'OverconstrainedError'].includes(errorName)) throw error;
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: { width: { ideal: 1280 }, height: { ideal: 720 } },
+          audio: false,
+        });
+      }
       streamRef.current = stream;
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
@@ -518,7 +528,13 @@ export function TrafficDashboard() {
       setCameraLive(true);
       setMessage(null);
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : '无法打开摄像头');
+      const errorName = error instanceof DOMException ? error.name : '';
+      const message = errorName === 'NotFoundError'
+        ? '未检测到摄像头，请连接摄像头后重试'
+        : errorName === 'NotAllowedError' || errorName === 'SecurityError'
+          ? '摄像头权限被拒绝，请在浏览器地址栏中允许摄像头访问'
+          : error instanceof Error ? error.message : '无法打开摄像头';
+      setMessage(message);
     }
   };
 
@@ -780,7 +796,7 @@ export function TrafficDashboard() {
                     {cameraLive ? (
                       <button className="icon-button danger" type="button" title="关闭摄像头" onClick={stopCamera}><StopCircle size={18} aria-hidden="true" /></button>
                     ) : (
-                      <button className="icon-button" type="button" title="打开摄像头" onClick={() => void startCamera()}><Camera size={18} aria-hidden="true" /></button>
+                      <button className="icon-button" type="button" title="打开摄像头" aria-label="打开摄像头" onClick={() => void startCamera()}><Camera size={18} aria-hidden="true" /></button>
                     )}
                   </div>
                 </div>

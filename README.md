@@ -35,9 +35,9 @@ pwsh -NoExit -ExecutionPolicy Bypass -File D:\路径\traffic_detection_core\star
 
 ## 推理设备
 
-默认启动方式会检测 `nvidia-smi`，读取 NVIDIA 驱动支持的 CUDA 版本，并自动选择与 PyTorch 2.5.1 匹配的 `cu118`、`cu121` 或 `cu124` 运行时。没有 NVIDIA GPU、驱动不可用或版本不足时，会自动安装 CPU 运行时。无需单独安装 CUDA Toolkit，但 NVIDIA GPU 必须已安装可用驱动。
+默认启动方式会优先检查系统 Python 是否已有可用的 CUDA PyTorch、FastAPI、Ultralytics 和 OpenCV；如果完整则直接复用系统环境。系统环境不完整时，脚本才会创建项目虚拟环境，并根据 NVIDIA 驱动自动安装匹配的 CUDA 运行时；没有 NVIDIA GPU 或驱动不可用时安装 CPU 运行时。无需单独安装 CUDA Toolkit，但 NVIDIA GPU 必须已安装可用驱动。
 
-CUDA 运行时首次下载约 2.5 GB，安装时建议预留至少 8 GB 磁盘空间。脚本会使用支持断点续传的下载方式；网络中断后，重新执行同一条启动命令即可继续，不会重新下载已完成的部分。下载和安装的运行时只保存在目标电脑的 `backend/.venv/`，不会包含在本项目交付文件中。磁盘空间不足或不需要 GPU 时，使用 CPU 参数启动。
+只有系统 Python 没有可用 CUDA 环境时，CUDA 运行时才会首次下载约 2.5 GB；安装时建议预留至少 8 GB 磁盘空间。脚本会使用支持断点续传的下载方式；网络中断后，重新执行同一条启动命令即可继续，不会重新下载已完成的部分。下载和安装的运行时只保存在目标电脑的 `backend/.venv/`，不会包含在本项目交付文件中。磁盘空间不足或不需要 GPU 时，使用 CPU 参数启动。
 
 需要强制使用 CPU 或 CUDA 时：
 
