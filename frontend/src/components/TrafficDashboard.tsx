@@ -246,6 +246,7 @@ async function api<T>(path: string, init?: RequestInit): Promise<T> {
 export function TrafficDashboard() {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const liveOverlayCanvasRef = useRef<HTMLCanvasElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const captureBusyRef = useRef(false);
   const imageUploadBusyRef = useRef(false);
@@ -316,6 +317,76 @@ export function TrafficDashboard() {
     setLiveResult(result);
     setCounts(normalizeCounts(result.class_counts));
   }, []);
+
+  useEffect(() => {
+    const canvas = liveOverlayCanvasRef.current;
+    const video = videoRef.current;
+    if (!canvas || !video) return undefined;
+
+    const draw = () => {
+      const context = canvas.getContext('2d');
+      const width = canvas.clientWidth;
+      const height = canvas.clientHeight;
+      if (!context || !width || !height) return;
+
+      const pixelRatio = window.devicePixelRatio || 1;
+      const pixelWidth = Math.round(width * pixelRatio);
+      const pixelHeight = Math.round(height * pixelRatio);
+      if (canvas.width !== pixelWidth || canvas.height !== pixelHeight) {
+        canvas.width = pixelWidth;
+        canvas.height = pixelHeight;
+      }
+      context.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
+      context.clearRect(0, 0, width, height);
+
+      const targets = liveResult?.detected_vehicles ?? [];
+      if (!cameraLive || !video.videoWidth || !video.videoHeight || !targets.length) return;
+
+      // The video uses object-fit: contain, so account for letterboxing before mapping model coordinates.
+      const scale = Math.min(width / video.videoWidth, height / video.videoHeight);
+      const renderedWidth = video.videoWidth * scale;
+      const renderedHeight = video.videoHeight * scale;
+      const offsetX = (width - renderedWidth) / 2;
+      const offsetY = (height - renderedHeight) / 2;
+      const lineWidth = Math.max(2, Math.min(4, width / 320));
+      const fontSize = Math.max(11, Math.min(16, width / 52));
+
+      context.lineWidth = lineWidth;
+      context.font = `700 ${fontSize}px "Microsoft YaHei", Arial, sans-serif`;
+      targets.forEach((target) => {
+        const targetMeta = targetByKey(target.vehicle_type);
+        const box = target.bounding_box;
+        const boxX = offsetX + box.x1 * scale;
+        const boxY = offsetY + box.y1 * scale;
+        const boxWidth = Math.max(1, (box.x2 - box.x1) * scale);
+        const boxHeight = Math.max(1, (box.y2 - box.y1) * scale);
+        const color = targetColorForTheme(targetMeta, theme === 'dark');
+        const label = `${target.display_label || targetMeta.label} ${(target.confidence * 100).toFixed(0)}%`;
+        const labelPadding = 4;
+        const labelHeight = fontSize + labelPadding * 2;
+        const labelWidth = context.measureText(label).width + labelPadding * 2;
+        const labelX = Math.max(0, Math.min(width - labelWidth, boxX));
+        const labelY = boxY >= labelHeight ? boxY - labelHeight : boxY;
+
+        context.strokeStyle = color;
+        context.strokeRect(boxX, boxY, boxWidth, boxHeight);
+        context.fillStyle = color;
+        context.fillRect(labelX, labelY, labelWidth, labelHeight);
+        context.fillStyle = '#ffffff';
+        context.fillText(label, labelX + labelPadding, labelY + fontSize + labelPadding - 1);
+      });
+    };
+
+    draw();
+    const redraw = () => window.requestAnimationFrame(draw);
+    window.addEventListener('resize', redraw);
+    const resizeObserver = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(redraw);
+    if (resizeObserver) resizeObserver.observe(canvas);
+    return () => {
+      window.removeEventListener('resize', redraw);
+      resizeObserver?.disconnect();
+    };
+  }, [cameraLive, liveResult, theme]);
 
   const refreshResources = useCallback(async () => {
     try {
@@ -504,10 +575,20 @@ export function TrafficDashboard() {
       if (!window.isSecureContext || !navigator.mediaDevices?.getUserMedia) {
         throw new Error('摄像头实时检测需要通过 HTTPS 或本机 localhost 访问当前页面');
       }
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } },
-        audio: false,
-      });
+      let stream: MediaStream;
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } },
+          audio: false,
+        });
+      } catch (error) {
+        const errorName = error instanceof DOMException ? error.name : '';
+        if (!['NotFoundError', 'OverconstrainedError'].includes(errorName)) throw error;
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: { width: { ideal: 1280 }, height: { ideal: 720 } },
+          audio: false,
+        });
+      }
       streamRef.current = stream;
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
@@ -518,7 +599,13 @@ export function TrafficDashboard() {
       setCameraLive(true);
       setMessage(null);
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : '无法打开摄像头');
+      const errorName = error instanceof DOMException ? error.name : '';
+      const message = errorName === 'NotFoundError'
+        ? '未检测到摄像头，请连接摄像头后重试'
+        : errorName === 'NotAllowedError' || errorName === 'SecurityError'
+          ? '摄像头权限被拒绝，请在浏览器地址栏中允许摄像头访问'
+          : error instanceof Error ? error.message : '无法打开摄像头';
+      setMessage(message);
     }
   };
 
@@ -780,12 +867,13 @@ export function TrafficDashboard() {
                     {cameraLive ? (
                       <button className="icon-button danger" type="button" title="关闭摄像头" onClick={stopCamera}><StopCircle size={18} aria-hidden="true" /></button>
                     ) : (
-                      <button className="icon-button" type="button" title="打开摄像头" onClick={() => void startCamera()}><Camera size={18} aria-hidden="true" /></button>
+                      <button className="icon-button" type="button" title="打开摄像头" aria-label="打开摄像头" onClick={() => void startCamera()}><Camera size={18} aria-hidden="true" /></button>
                     )}
                   </div>
                 </div>
                 <div className={cameraLive ? 'video-stage is-live' : 'video-stage is-idle'}>
                   <video ref={videoRef} playsInline muted />
+                  <canvas ref={liveOverlayCanvasRef} className="live-detection-overlay" aria-hidden="true" />
                   <BaselineGuide config={baselineConfig} />
                   {!cameraLive && <Radio className="stage-icon" size={36} aria-hidden="true" />}
                 </div>
