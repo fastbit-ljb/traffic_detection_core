@@ -1,5 +1,6 @@
 param(
     [switch]$NoBrowser,
+    [switch]$UseSystemCuda,
     [ValidateSet('Auto', 'Cpu', 'Cuda')]
     [string]$InferenceRuntime = 'Auto'
 )
@@ -179,6 +180,18 @@ function Install-TorchRuntime {
 }
 
 function Install-BackendDependencies {
+    if ($UseSystemCuda) {
+        $systemPython = (Get-Command python -ErrorAction Stop).Source
+        $cudaDetails = (& $systemPython -c "import torch, fastapi, uvicorn, ultralytics, cv2; assert torch.cuda.is_available(); print(f'{torch.__version__}; CUDA {torch.version.cuda}; {torch.cuda.get_device_name(0)}')" 2>&1 | Out-String).Trim()
+        if ($LASTEXITCODE -ne 0) {
+            throw "System CUDA Python cannot run this project. $cudaDetails"
+        }
+
+        $env:TRAFFIC_ENABLE_GPU_ACCELERATION = 'true'
+        Write-Host "Using existing system CUDA runtime: $cudaDetails"
+        return $systemPython
+    }
+
     $venvDirectory = Join-Path $backendDir '.venv'
     $venvPython = Join-Path $venvDirectory 'Scripts\python.exe'
     $requirementsFile = Join-Path $backendDir 'requirements.txt'

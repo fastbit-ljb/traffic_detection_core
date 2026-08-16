@@ -46,6 +46,14 @@ CUDA 运行时首次下载约 2.5 GB，安装时建议预留至少 8 GB 磁盘�
 .\start-dev.ps1 -InferenceRuntime Cuda
 ```
 
+若电脑已经在系统 Python 中安装了可用的 CUDA PyTorch，可复用该环境并跳过项目虚拟环境中的重复下载：
+
+```powershell
+.\start-dev.ps1 -UseSystemCuda
+```
+
+该模式会验证系统 Python 的 CUDA PyTorch，并默认启用 GPU 推理。
+
 ## 运行后生成的内容
 
 首次运行会在 `backend/storage/`、`backend/uploads/`、`backend/output_images/`、`backend/output_videos/` 和 `backend/logs/` 中生成数据。这些均属于本地运行记录，不是源码的一部分，也不应作为干净交付包内容。
