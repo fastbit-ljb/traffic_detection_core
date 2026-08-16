@@ -33,6 +33,9 @@ fi
 public_origin="$public_scheme://$server_name"
 https_redirect_origin='https://$host'
 if [[ "$https_port" != "443" ]]; then
+  if [[ "$public_scheme" == "https" ]]; then
+    public_origin="$public_origin:$https_port"
+  fi
   https_redirect_origin="https://\$host:$https_port"
 fi
 
