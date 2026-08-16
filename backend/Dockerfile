@@ -1,5 +1,7 @@
 # Multi-stage Docker build for AI Traffic Management Backend
-FROM python:3.11-slim as builder
+# Keep the Debian release stable. The unqualified slim tag can move to a new
+# Debian version and unexpectedly remove system packages needed by OpenCV.
+FROM python:3.11-slim-bookworm AS builder
 
 # Set environment variables
 ENV PYTHONDONTWRITEBYTECODE=1 \
@@ -16,17 +18,21 @@ RUN apt-get update && apt-get install -y \
     libxrender-dev \
     libgomp1 \
     libglib2.0-0 \
-    libgl1-mesa-glx \
+    libgl1 \
     libgthread-2.0-0 \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Python dependencies
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+# The PyPI PyTorch wheel brings CUDA libraries. The CPU image must use the
+# dedicated CPU wheel or a small server will download several unnecessary GB.
+RUN pip install --no-cache-dir --index-url https://download.pytorch.org/whl/cpu \
+    torch==2.5.1+cpu torchvision==0.20.1+cpu \
+    && pip install --no-cache-dir -r requirements.txt
 
 # Production stage
-FROM python:3.11-slim as production
+FROM python:3.11-slim-bookworm AS production
 
 # Set environment variables
 ENV PYTHONDONTWRITEBYTECODE=1 \
@@ -40,7 +46,7 @@ RUN apt-get update && apt-get install -y \
     libxext6 \
     libxrender-dev \
     libgomp1 \
-    libgl1-mesa-glx \
+    libgl1 \
     libgthread-2.0-0 \
     curl \
     && rm -rf /var/lib/apt/lists/* \
