@@ -22,10 +22,18 @@ if [[ ! -f "$env_file" ]]; then
   secret="$(openssl rand -hex 32)"
   sed \
     -e "s|__PUBLIC_ORIGIN__|$public_origin|" \
+    -e "s|__SERVER_NAME__|$server_name|" \
     -e "s|__GENERATE_ON_DEPLOY__|$secret|" \
     "$deploy_dir/.env.production.template" > "$env_file"
   chmod 600 "$env_file"
   echo "Created $env_file. Keep this file private."
+fi
+
+allowed_hosts="localhost,127.0.0.1,$server_name"
+if grep -q '^TRAFFIC_ALLOWED_HOSTS=' "$env_file"; then
+  sed -i "s|^TRAFFIC_ALLOWED_HOSTS=.*|TRAFFIC_ALLOWED_HOSTS=$allowed_hosts|" "$env_file"
+else
+  printf '\nTRAFFIC_ALLOWED_HOSTS=%s\n' "$allowed_hosts" >> "$env_file"
 fi
 
 compose=(docker compose --env-file "$env_file" -f "$deploy_dir/docker-compose.cpu.yml")

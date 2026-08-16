@@ -35,6 +35,7 @@ class ApplicationSettings(BaseSettings):
     ]
     allowed_methods: Annotated[List[str], NoDecode] = ["GET", "POST", "PUT", "DELETE", "OPTIONS"]
     allowed_headers: Annotated[List[str], NoDecode] = ["*"]
+    allowed_hosts: Annotated[List[str], NoDecode] = ["localhost", "127.0.0.1"]
 
     # Database Configuration with validation
     mongodb_connection_string: str = "mongodb://localhost:27017"
@@ -97,7 +98,7 @@ class ApplicationSettings(BaseSettings):
             return origins
         return value
 
-    @field_validator("allowed_methods", "allowed_headers", "allowed_image_types", mode="before")
+    @field_validator("allowed_methods", "allowed_headers", "allowed_hosts", "allowed_image_types", mode="before")
     @classmethod
     def parse_comma_separated_lists(cls, value):
         """Accept deployment-friendly comma-separated list environment variables."""
@@ -183,6 +184,7 @@ class ProductionSettings(ApplicationSettings):
     allowed_origins: Annotated[List[str], NoDecode] = [
         "https://your-frontend-domain.com",
     ]
+    allowed_hosts: Annotated[List[str], NoDecode] = ["localhost", "127.0.0.1"]
     
     # Tighter rate limits for production
     rate_limit_requests_per_minute: int = 30

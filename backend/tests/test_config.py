@@ -103,6 +103,7 @@ class TestApplicationSettings:
         monkeypatch.setenv("TRAFFIC_ALLOWED_ORIGINS", "https://example.com,https://dashboard.example.com")
         monkeypatch.setenv("TRAFFIC_ALLOWED_METHODS", "GET,POST")
         monkeypatch.setenv("TRAFFIC_ALLOWED_HEADERS", "Authorization,Content-Type")
+        monkeypatch.setenv("TRAFFIC_ALLOWED_HOSTS", "localhost,127.0.0.1,traffic.example.com")
         monkeypatch.setenv("TRAFFIC_ALLOWED_IMAGE_TYPES", ".jpg,.png")
 
         settings = ApplicationSettings()
@@ -110,6 +111,7 @@ class TestApplicationSettings:
         assert settings.allowed_origins == ["https://example.com", "https://dashboard.example.com"]
         assert settings.allowed_methods == ["GET", "POST"]
         assert settings.allowed_headers == ["Authorization", "Content-Type"]
+        assert settings.allowed_hosts == ["localhost", "127.0.0.1", "traffic.example.com"]
         assert settings.allowed_image_types == [".jpg", ".png"]
     
     @patch.dict(os.environ, {"ENVIRONMENT": "production"})
