@@ -28,7 +28,17 @@ if [[ ! -f "$env_file" ]]; then
   echo "Created $env_file. Keep this file private."
 fi
 
-docker compose --env-file "$env_file" -f "$deploy_dir/docker-compose.cpu.yml" up -d --build
+compose=(docker compose --env-file "$env_file" -f "$deploy_dir/docker-compose.cpu.yml")
+"${compose[@]}" build api
+
+# Named volumes can be created as root on a first deployment. Initialize every
+# writable runtime directory as root once, then hand it to the non-root API user.
+# This also repairs volumes created by earlier versions of the deployment image.
+"${compose[@]}" run --rm --no-deps --user root api sh -ec '
+  mkdir -p /app/storage /app/uploads /app/output_images /app/output_videos /app/models /app/logs
+  chown -R traffic:traffic /app/storage /app/uploads /app/output_images /app/output_videos /app/models /app/logs
+'
+"${compose[@]}" up -d
 
 frontend_image="traffic-detection-frontend-build"
 frontend_container="traffic-detection-frontend-export"
@@ -46,5 +56,9 @@ sudo ln -sfn "$nginx_site" /etc/nginx/sites-enabled/traffic-detection
 sudo nginx -t
 sudo systemctl reload nginx
 
-curl --fail --retry 10 --retry-delay 2 "http://127.0.0.1:8000/health" >/dev/null
+health_response="$(curl --fail --retry 10 --retry-delay 2 "http://127.0.0.1:8000/health")"
+if ! grep -q '"status":"healthy"' <<<"$health_response"; then
+  echo "API started but its services are not ready: $health_response" >&2
+  exit 1
+fi
 echo "Deployment complete: $public_origin"
