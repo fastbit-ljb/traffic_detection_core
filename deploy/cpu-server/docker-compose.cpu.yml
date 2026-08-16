@@ -1,0 +1,30 @@
+name: traffic-detection
+
+services:
+  api:
+    build:
+      context: ../../backend
+      dockerfile: Dockerfile
+    env_file:
+      - .env.production
+    restart: unless-stopped
+    init: true
+    ports:
+      - "127.0.0.1:8000:8000"
+    mem_limit: 1500m
+    cpus: 1.75
+    volumes:
+      - traffic-storage:/app/storage
+      - traffic-uploads:/app/uploads
+      - traffic-images:/app/output_images
+      - traffic-videos:/app/output_videos
+      - traffic-models:/app/models
+      - traffic-logs:/app/logs
+
+volumes:
+  traffic-storage:
+  traffic-uploads:
+  traffic-images:
+  traffic-videos:
+  traffic-models:
+  traffic-logs:

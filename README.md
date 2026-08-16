@@ -59,3 +59,5 @@ CUDA 运行时首次下载约 2.5 GB，安装时建议预留至少 8 GB 磁盘�
 首次运行会在 `backend/storage/`、`backend/uploads/`、`backend/output_images/`、`backend/output_videos/` 和 `backend/logs/` 中生成数据。这些均属于本地运行记录，不是源码的一部分，也不应作为干净交付包内容。
 
 完整部署说明见 `docs/DEPLOYMENT.md`。
+
+无 GPU 的 Ubuntu CPU 服务器部署（Docker + Nginx）见 `docs/CPU_SERVER_DEPLOYMENT.md`。

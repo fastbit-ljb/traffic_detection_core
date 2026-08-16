@@ -57,7 +57,9 @@ ChartJS.register(CategoryScale, LinearScale, BarElement, Tooltip, Legend);
 const configuredApiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? import.meta.env.VITE_API_URL;
 const API_BASE_URL = configuredApiBaseUrl
   ? `${/^https?:\/\//i.test(configuredApiBaseUrl) ? configuredApiBaseUrl : `https://${configuredApiBaseUrl}`}`.replace(/\/+$/, '')
-  : 'http://127.0.0.1:8000';
+  : import.meta.env.PROD
+    ? window.location.origin
+    : 'http://127.0.0.1:8000';
 
 const TARGETS = [
   { key: 'person', label: '行人', color: '#7c3aed' },
