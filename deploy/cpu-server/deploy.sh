@@ -36,6 +36,11 @@ compose=(docker compose --env-file "$env_file" -f "$deploy_dir/docker-compose.cp
 # This also repairs volumes created by earlier versions of the deployment image.
 "${compose[@]}" run --rm --no-deps --user root api sh -ec '
   mkdir -p /app/storage /app/uploads /app/output_images /app/output_videos /app/models /app/logs
+  for model in /opt/bootstrap-models/*.pt; do
+    [ -s "$model" ] || continue
+    target="/app/models/${model##*/}"
+    [ -s "$target" ] || cp "$model" "$target"
+  done
   chown -R traffic:traffic /app/storage /app/uploads /app/output_images /app/output_videos /app/models /app/logs
 '
 "${compose[@]}" up -d

@@ -52,4 +52,4 @@ docker compose -f deploy/cpu-server/docker-compose.cpu.yml logs -f api
 docker compose -f deploy/cpu-server/docker-compose.cpu.yml restart api
 ```
 
-The first API start downloads the default YOLOv8n model into the `traffic-models` volume. This is a small one-time download. Detection history, uploaded files, generated images, generated videos, logs, and models are persistent Docker volumes. List them with `docker volume ls | grep traffic`.
+The first API image build downloads the three official YOLOv8 weights (`n`, `s`, and `m`) and packages the representative self-trained traffic weight. The deployment script copies all four into the persistent `traffic-models` volume before the API starts. Detection history, uploaded files, generated images, generated videos, logs, and models are persistent Docker volumes. List them with `docker volume ls | grep traffic`.

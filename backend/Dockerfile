@@ -66,10 +66,31 @@ RUN mkdir -p /app/models /app/uploads /app/output_images /app/output_videos /app
 
 # Copy application code
 COPY --chown=traffic:traffic ./app ./app
-# Pre-download default model weights into ./models (model_cache_directory)
-# so the offline production image can start without fetching at runtime.
-ENV ULTRALYTICS_CACHE_DIR=/app/models
-RUN python -c "from ultralytics import YOLO; YOLO('yolov8n.pt')"
+
+# Keep official weights outside the runtime volume. The deployment script copies
+# them into /app/models, including when an existing empty volume is reused.
+RUN mkdir -p /opt/bootstrap-models
+RUN python - <<'PY'
+import os
+import shutil
+from pathlib import Path
+
+from ultralytics import YOLO
+
+bootstrap_dir = Path("/opt/bootstrap-models")
+download_dir = Path("/tmp/yolo-downloads")
+download_dir.mkdir(parents=True, exist_ok=True)
+for model_name in ("yolov8n.pt", "yolov8s.pt", "yolov8m.pt"):
+    os.chdir(download_dir)
+    YOLO(model_name)
+    downloaded_model = download_dir / model_name
+    if not downloaded_model.is_file() or downloaded_model.stat().st_size == 0:
+        raise RuntimeError(f"Failed to download {model_name}")
+    shutil.copy2(downloaded_model, bootstrap_dir / model_name)
+PY
+
+# One compact self-trained traffic weight is kept for the project demonstration.
+COPY --chown=traffic:traffic ./models/trained_28068449.pt /opt/bootstrap-models/trained_28068449.pt
 
 # Switch to non-root user
 USER traffic
