@@ -1105,32 +1105,23 @@ function AuthPanel({
     <section className={`auth-panel auth-panel--${mode} ${message ? 'has-error' : ''}`} aria-label={mode === 'login' ? '用户登录' : '用户注册'}>
       <div className="auth-journey-scene" data-signal={signalState} data-focus={focusedField ?? 'idle'} onMouseMove={followPointer} onMouseLeave={() => setLookDirection({ x: 0, y: 0 })}>
         <div className="auth-scene-label"><span>TRAFFIC FLOW</span><i aria-hidden="true" /></div>
+        <img className="auth-cityscape" src="/illustrations/fluent-cityscape.png" alt="" aria-hidden="true" />
         <div className="auth-road-markings" aria-hidden="true"><i /><i /><i /></div>
         <div className="auth-bus" aria-hidden="true">
-          <div className="auth-bus-destination">CITY DETECTION</div>
-          <div className="auth-bus-window auth-bus-window--driver">
-            <div className="auth-driver">
-              <i className="auth-driver-neck" />
-              <span className="auth-driver-head">
-                <i className="auth-driver-ear" />
-                <b className="auth-driver-eye"><i className="auth-driver-pupil" style={{ transform: `translate(${lookDirection.x}px, ${lookDirection.y}px)` }} /></b>
-                <b className="auth-driver-eye"><i className="auth-driver-pupil" style={{ transform: `translate(${lookDirection.x}px, ${lookDirection.y}px)` }} /></b>
-                <i className="auth-driver-smile" />
-              </span>
-            </div>
+          <img className="auth-bus-art" src="/illustrations/fluent-bus.png" alt="" />
+          <div className="auth-driver">
+            <i className="auth-driver-neck" />
+            <span className="auth-driver-head">
+              <i className="auth-driver-ear" />
+              <b className="auth-driver-eye"><i className="auth-driver-pupil" style={{ transform: `translate(${lookDirection.x}px, ${lookDirection.y}px)` }} /></b>
+              <b className="auth-driver-eye"><i className="auth-driver-pupil" style={{ transform: `translate(${lookDirection.x}px, ${lookDirection.y}px)` }} /></b>
+              <i className="auth-driver-smile" />
+            </span>
           </div>
-          <div className="auth-bus-window"><i /><i /></div>
-          <div className="auth-bus-window"><i /><i /></div>
-          <div className="auth-bus-wheel auth-bus-wheel--left"><i /></div>
-          <div className="auth-bus-wheel auth-bus-wheel--right"><i /></div>
-          <span className="auth-bus-light" />
-          <span className="auth-bus-stripe" />
         </div>
         <div className="auth-traffic-light" aria-label={signalState === 'go' ? '可以通行' : signalState === 'ready' ? '准备通行' : '暂停通行'}>
-          <i className="auth-traffic-pole" />
-          <span className="auth-lamp auth-lamp--red" />
-          <span className="auth-lamp auth-lamp--yellow" />
-          <span className="auth-lamp auth-lamp--green" />
+          <img className="auth-traffic-light-art" src="/illustrations/fluent-traffic-light.png" alt="" />
+          <span className="auth-signal-glow" />
         </div>
       </div>
       <div className="auth-content">
