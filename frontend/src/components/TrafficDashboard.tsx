@@ -21,6 +21,8 @@ import {
   StopCircle,
   Clock3,
   Database,
+  Eye,
+  EyeOff,
   Trash2,
   FileArchive,
   FileImage,
@@ -29,6 +31,7 @@ import {
   ImagePlus,
   Loader2,
   LogOut,
+  KeyRound,
   PackageOpen,
   Play,
   Radio,
@@ -36,6 +39,7 @@ import {
   Sun,
   Moon,
   Upload,
+  UserCircle,
   Video,
   X,
   Zap,
@@ -1079,20 +1083,82 @@ function AuthPanel({
   onChange: (form: { username: string; password: string }) => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
 }) {
+  const [focusedField, setFocusedField] = useState<'username' | 'password' | null>(null);
+  const [showPassword, setShowPassword] = useState(false);
+  const [lookDirection, setLookDirection] = useState({ x: 0, y: 0 });
+  const fieldsFilled = Boolean(form.username.trim() && form.password);
+  const formReady = form.username.trim().length >= 3 && form.password.length >= 8;
+  const signalState = message ? 'stop' : fieldsFilled ? 'go' : focusedField === 'username' ? 'ready' : 'stop';
+
+  const followPointer = (event: MouseEvent<HTMLDivElement>) => {
+    if (focusedField === 'password') return;
+    const bounds = event.currentTarget.getBoundingClientRect();
+    const targetX = bounds.left + bounds.width * 0.43;
+    const targetY = bounds.top + bounds.height * 0.46;
+    setLookDirection({
+      x: Math.max(-4, Math.min(4, (event.clientX - targetX) / 34)),
+      y: Math.max(-3, Math.min(3, (event.clientY - targetY) / 42)),
+    });
+  };
+
   return <div className="auth-screen">
-    <section className="auth-panel" aria-label={mode === 'login' ? '用户登录' : '用户注册'}>
-      <p className="eyebrow">YOLOV8 ROAD OBJECT DETECTION</p>
-      <h1>道路车辆与行人检测系统</h1>
-      <div className="auth-mode-tabs" role="tablist" aria-label="账户操作">
-        <button className={mode === 'login' ? 'selected' : ''} type="button" onClick={() => onModeChange('login')}>登录</button>
-        <button className={mode === 'register' ? 'selected' : ''} type="button" onClick={() => onModeChange('register')}>注册</button>
+    <section className={`auth-panel auth-panel--${mode} ${message ? 'has-error' : ''}`} aria-label={mode === 'login' ? '用户登录' : '用户注册'}>
+      <div className="auth-journey-scene" data-signal={signalState} data-focus={focusedField ?? 'idle'} onMouseMove={followPointer} onMouseLeave={() => setLookDirection({ x: 0, y: 0 })}>
+        <div className="auth-scene-label"><span>TRAFFIC FLOW</span><i aria-hidden="true" /></div>
+        <div className="auth-road-markings" aria-hidden="true"><i /><i /><i /></div>
+        <div className="auth-bus" aria-hidden="true">
+          <div className="auth-bus-destination">CITY DETECTION</div>
+          <div className="auth-bus-window auth-bus-window--driver">
+            <div className="auth-driver">
+              <i className="auth-driver-neck" />
+              <span className="auth-driver-head">
+                <i className="auth-driver-ear" />
+                <b className="auth-driver-eye"><i className="auth-driver-pupil" style={{ transform: `translate(${lookDirection.x}px, ${lookDirection.y}px)` }} /></b>
+                <b className="auth-driver-eye"><i className="auth-driver-pupil" style={{ transform: `translate(${lookDirection.x}px, ${lookDirection.y}px)` }} /></b>
+                <i className="auth-driver-smile" />
+              </span>
+            </div>
+          </div>
+          <div className="auth-bus-window"><i /><i /></div>
+          <div className="auth-bus-window"><i /><i /></div>
+          <div className="auth-bus-wheel auth-bus-wheel--left"><i /></div>
+          <div className="auth-bus-wheel auth-bus-wheel--right"><i /></div>
+          <span className="auth-bus-light" />
+          <span className="auth-bus-stripe" />
+        </div>
+        <div className="auth-traffic-light" aria-label={signalState === 'go' ? '可以通行' : signalState === 'ready' ? '准备通行' : '暂停通行'}>
+          <i className="auth-traffic-pole" />
+          <span className="auth-lamp auth-lamp--red" />
+          <span className="auth-lamp auth-lamp--yellow" />
+          <span className="auth-lamp auth-lamp--green" />
+        </div>
       </div>
-      <form className="auth-form" onSubmit={onSubmit}>
-        <label className="field-label">用户名<input value={form.username} autoComplete="username" onChange={(event) => onChange({ ...form, username: event.target.value })} placeholder="3-32 个字符" required /></label>
-        <label className="field-label">密码<input value={form.password} type="password" autoComplete={mode === 'login' ? 'current-password' : 'new-password'} onChange={(event) => onChange({ ...form, password: event.target.value })} placeholder="至少 8 个字符" minLength={8} required /></label>
-        {message && <p className="auth-error" role="alert">{message}</p>}
-        <button className="command-button auth-submit" type="submit" disabled={busy}>{busy ? <Loader2 className="spin" size={16} aria-hidden="true" /> : null}{mode === 'login' ? '登录系统' : '创建账号'}</button>
-      </form>
+      <div className="auth-content">
+        <div className="auth-heading">
+          <p className="eyebrow">道路目标检测平台</p>
+          <h1>{mode === 'login' ? '欢迎回来' : '创建你的账号'}</h1>
+          <p>{mode === 'login' ? '登录后查看并管理你的检测任务。' : '注册后检测记录将仅归属于当前账号。'}</p>
+        </div>
+        <div className="auth-mode-tabs" role="tablist" aria-label="账户操作">
+          <button className={mode === 'login' ? 'selected' : ''} type="button" role="tab" aria-selected={mode === 'login'} onClick={() => onModeChange('login')}>登录</button>
+          <button className={mode === 'register' ? 'selected' : ''} type="button" role="tab" aria-selected={mode === 'register'} onClick={() => onModeChange('register')}>注册</button>
+        </div>
+        <form className="auth-form" onSubmit={onSubmit}>
+          <label className={focusedField === 'username' ? 'auth-input-field focused' : 'auth-input-field'}>
+            <span>账号</span>
+            <i className="auth-input-icon" aria-hidden="true"><UserCircle size={18} /></i>
+            <input value={form.username} autoComplete="username" onFocus={() => setFocusedField('username')} onBlur={() => setFocusedField(null)} onChange={(event) => onChange({ ...form, username: event.target.value })} placeholder="输入用户名" minLength={3} maxLength={32} required />
+          </label>
+          <label className={focusedField === 'password' ? 'auth-input-field focused' : 'auth-input-field'}>
+            <span>密码</span>
+            <i className="auth-input-icon" aria-hidden="true"><KeyRound size={18} /></i>
+            <input value={form.password} type={showPassword ? 'text' : 'password'} autoComplete={mode === 'login' ? 'current-password' : 'new-password'} onFocus={() => setFocusedField('password')} onBlur={() => setFocusedField(null)} onChange={(event) => onChange({ ...form, password: event.target.value })} placeholder="输入密码" minLength={8} required />
+            <button className="auth-password-toggle" type="button" aria-label={showPassword ? '隐藏密码' : '显示密码'} title={showPassword ? '隐藏密码' : '显示密码'} onMouseDown={(event) => event.preventDefault()} onClick={() => setShowPassword((visible) => !visible)}>{showPassword ? <EyeOff size={18} aria-hidden="true" /> : <Eye size={18} aria-hidden="true" />}</button>
+          </label>
+          {message && <p className="auth-error" role="alert">{message}</p>}
+          <button className={formReady ? 'auth-submit is-ready' : 'auth-submit'} type="submit" disabled={busy || !formReady}>{busy ? <Loader2 className="spin" size={17} aria-hidden="true" /> : <>{mode === 'login' ? '登录系统' : '创建账号'}<ArrowRight size={18} aria-hidden="true" /></>}</button>
+        </form>
+      </div>
     </section>
   </div>;
 }
