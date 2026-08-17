@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type ChangeEvent, type CSSProperties, type FormEvent, type MouseEvent } from 'react';
+import { useCallback, useEffect, useRef, useState, type ChangeEvent, type CSSProperties, type FormEvent, type MouseEvent as ReactMouseEvent } from 'react';
 import { flushSync } from 'react-dom';
 import { Bar } from 'react-chartjs-2';
 import {
@@ -16,6 +16,7 @@ import {
   ArrowRight,
   ArrowUp,
   Camera,
+  Car,
   ChevronRight,
   Cpu,
   StopCircle,
@@ -31,15 +32,14 @@ import {
   ImagePlus,
   Loader2,
   LogOut,
-  KeyRound,
   PackageOpen,
   Play,
   Radio,
   RefreshCw,
+  Sparkles,
   Sun,
   Moon,
   Upload,
-  UserCircle,
   Video,
   X,
   Zap,
@@ -62,9 +62,7 @@ ChartJS.register(CategoryScale, LinearScale, BarElement, Tooltip, Legend);
 const configuredApiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? import.meta.env.VITE_API_URL;
 const API_BASE_URL = configuredApiBaseUrl
   ? `${/^https?:\/\//i.test(configuredApiBaseUrl) ? configuredApiBaseUrl : `https://${configuredApiBaseUrl}`}`.replace(/\/+$/, '')
-  : import.meta.env.PROD
-    ? window.location.origin
-    : 'http://127.0.0.1:8000';
+  : window.location.origin;
 const AUTH_TOKEN_KEY = 'traffic-auth-token';
 
 const TARGETS = [
@@ -310,6 +308,7 @@ export function TrafficDashboard() {
   const [authForm, setAuthForm] = useState({ username: '', password: '' });
   const [authBusy, setAuthBusy] = useState(false);
   const [authMessage, setAuthMessage] = useState<string | null>(null);
+  const [authTransitioning, setAuthTransitioning] = useState(false);
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
@@ -339,8 +338,17 @@ export function TrafficDashboard() {
         body: JSON.stringify(authForm),
       });
       window.localStorage.setItem(AUTH_TOKEN_KEY, response.access_token);
-      setAuthUser(response.user);
-      setAuthForm({ username: '', password: '' });
+      const completeAuthentication = () => {
+        setAuthUser(response.user);
+        setAuthForm({ username: '', password: '' });
+        setAuthTransitioning(false);
+      };
+      if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+        completeAuthentication();
+      } else {
+        setAuthTransitioning(true);
+        window.setTimeout(completeAuthentication, 420);
+      }
     } catch (error) {
       setAuthMessage(error instanceof Error ? error.message : '认证失败，请稍后重试');
     } finally {
@@ -348,7 +356,7 @@ export function TrafficDashboard() {
     }
   };
 
-  const toggleTheme = (event: MouseEvent<HTMLButtonElement>) => {
+  const toggleTheme = (event: ReactMouseEvent<HTMLButtonElement>) => {
     const nextTheme: ThemeMode = theme === 'light' ? 'dark' : 'light';
     const commitTheme = () => {
       document.documentElement.dataset.theme = nextTheme;
@@ -895,11 +903,11 @@ export function TrafficDashboard() {
   const imageUrl = imagePreviewUrl ?? annotatedImageUrl(imageResult?.annotated_image_path);
   const processedVideoUrl = videoUrl(videoJob?.result?.output_path, videoJob?.id);
 
-  if (!authReady) return <div className="auth-screen"><section className="auth-panel"><p className="eyebrow">YOLOV8 ROAD OBJECT DETECTION</p><h1>正在检查登录状态</h1></section></div>;
-  if (!authUser) return <AuthPanel mode={authMode} form={authForm} busy={authBusy} message={authMessage} onModeChange={(mode) => { setAuthMode(mode); setAuthMessage(null); }} onChange={setAuthForm} onSubmit={submitAuth} />;
+  if (!authReady) return <div className="auth-screen"><section className="auth-loading"><p className="eyebrow">YOLOV8 ROAD OBJECT DETECTION</p><h1>正在检查登录状态</h1></section></div>;
+  if (!authUser) return <AuthPanel mode={authMode} form={authForm} busy={authBusy} leaving={authTransitioning} message={authMessage} onModeChange={(mode) => { setAuthMode(mode); setAuthMessage(null); }} onChange={setAuthForm} onSubmit={submitAuth} />;
 
   return (
-    <div className="app-shell">
+    <div className="app-shell app-shell--entering">
       <header className="topbar">
         <div className="topbar-brand">
           <p className="eyebrow">YOLOV8 ROAD OBJECT DETECTION</p>
@@ -1070,6 +1078,7 @@ function AuthPanel({
   mode,
   form,
   busy,
+  leaving,
   message,
   onModeChange,
   onChange,
@@ -1078,6 +1087,7 @@ function AuthPanel({
   mode: 'login' | 'register';
   form: { username: string; password: string };
   busy: boolean;
+  leaving: boolean;
   message: string | null;
   onModeChange: (mode: 'login' | 'register') => void;
   onChange: (form: { username: string; password: string }) => void;
@@ -1085,72 +1095,276 @@ function AuthPanel({
 }) {
   const [focusedField, setFocusedField] = useState<'username' | 'password' | null>(null);
   const [showPassword, setShowPassword] = useState(false);
-  const [lookDirection, setLookDirection] = useState({ x: 0, y: 0 });
-  const fieldsFilled = Boolean(form.username.trim() && form.password);
+  const [pointer, setPointer] = useState({ x: 0, y: 0 });
+  const [isTyping, setIsTyping] = useState(false);
+  const [isLookingAtEachOther, setIsLookingAtEachOther] = useState(false);
+  const [isPurpleBlinking, setIsPurpleBlinking] = useState(false);
+  const [isBlackBlinking, setIsBlackBlinking] = useState(false);
+  const [isPurplePeeking, setIsPurplePeeking] = useState(false);
+  const typingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const peekTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const showPasswordRef = useRef(showPassword);
+  const passwordRef = useRef(form.password);
+  const usernameInputRef = useRef<HTMLInputElement>(null);
+  const purpleRef = useRef<HTMLDivElement>(null);
+  const blackRef = useRef<HTMLDivElement>(null);
+  const orangeRef = useRef<HTMLDivElement>(null);
+  const yellowRef = useRef<HTMLDivElement>(null);
+  const purpleEyeRef = useRef<HTMLElement>(null);
+  const blackEyeRef = useRef<HTMLElement>(null);
+  const orangePupilRef = useRef<HTMLElement>(null);
+  const yellowPupilRef = useRef<HTMLElement>(null);
   const formReady = form.username.trim().length >= 3 && form.password.length >= 8;
-  const signalState = message ? 'stop' : fieldsFilled ? 'go' : focusedField === 'username' ? 'ready' : 'stop';
+  const signalState = formReady ? 'green' : form.username.trim() || form.password ? 'yellow' : 'red';
+  const signalLabel = signalState === 'green' ? '登录条件已满足' : signalState === 'yellow' ? '正在填写登录信息' : '等待填写登录信息';
 
-  const followPointer = (event: MouseEvent<HTMLDivElement>) => {
-    if (focusedField === 'password') return;
-    const bounds = event.currentTarget.getBoundingClientRect();
-    const targetX = bounds.left + bounds.width * 0.43;
-    const targetY = bounds.top + bounds.height * 0.46;
-    setLookDirection({
-      x: Math.max(-4, Math.min(4, (event.clientX - targetX) / 34)),
-      y: Math.max(-3, Math.min(3, (event.clientY - targetY) / 42)),
+  useEffect(() => {
+    showPasswordRef.current = showPassword;
+    passwordRef.current = form.password;
+  }, [form.password, showPassword]);
+
+  useEffect(() => {
+    const onMouseMove = (event: globalThis.MouseEvent) => {
+      if (!isTyping && !message) setPointer({ x: event.clientX, y: event.clientY });
+    };
+    document.addEventListener('mousemove', onMouseMove);
+    return () => document.removeEventListener('mousemove', onMouseMove);
+  }, [isTyping, message]);
+
+  useEffect(() => {
+    let purpleTimer: ReturnType<typeof setTimeout>;
+    let blackTimer: ReturnType<typeof setTimeout>;
+    const schedulePurpleBlink = () => {
+      purpleTimer = setTimeout(() => {
+        setIsPurpleBlinking(true);
+        purpleTimer = setTimeout(() => {
+          setIsPurpleBlinking(false);
+          schedulePurpleBlink();
+        }, 150);
+      }, Math.random() * 4000 + 3000);
+    };
+    const scheduleBlackBlink = () => {
+      blackTimer = setTimeout(() => {
+        setIsBlackBlinking(true);
+        blackTimer = setTimeout(() => {
+          setIsBlackBlinking(false);
+          scheduleBlackBlink();
+        }, 150);
+      }, Math.random() * 4000 + 3000);
+    };
+    schedulePurpleBlink();
+    scheduleBlackBlink();
+    return () => {
+      clearTimeout(purpleTimer);
+      clearTimeout(blackTimer);
+    };
+  }, []);
+
+  useEffect(() => () => {
+    if (typingTimerRef.current) clearTimeout(typingTimerRef.current);
+    if (peekTimerRef.current) clearTimeout(peekTimerRef.current);
+  }, []);
+
+  const calcPosition = (element: HTMLElement | null) => {
+    if (!element) return { faceX: 0, faceY: 0, bodySkew: 0 };
+    const rect = element.getBoundingClientRect();
+    const dx = pointer.x - (rect.left + rect.width / 2);
+    const dy = pointer.y - (rect.top + rect.height / 3);
+    return {
+      faceX: Math.max(-15, Math.min(15, dx / 20)),
+      faceY: Math.max(-10, Math.min(10, dy / 30)),
+      bodySkew: Math.max(-6, Math.min(6, -dx / 120)),
+    };
+  };
+
+  const calcPupilOffset = (element: HTMLElement | null, maxDistance: number) => {
+    if (!element) return { x: 0, y: 0 };
+    const rect = element.getBoundingClientRect();
+    const dx = pointer.x - (rect.left + rect.width / 2);
+    const dy = pointer.y - (rect.top + rect.height / 2);
+    const distance = Math.min(Math.hypot(dx, dy), maxDistance);
+    const angle = Math.atan2(dy, dx);
+    return { x: Math.cos(angle) * distance, y: Math.sin(angle) * distance };
+  };
+
+  const startUsernameInteraction = () => {
+    setFocusedField('username');
+    setIsTyping(true);
+    setIsLookingAtEachOther(true);
+    if (typingTimerRef.current) clearTimeout(typingTimerRef.current);
+    typingTimerRef.current = setTimeout(() => setIsLookingAtEachOther(false), 800);
+  };
+
+  const endUsernameInteraction = () => {
+    setFocusedField(null);
+    setIsTyping(false);
+    setIsLookingAtEachOther(false);
+    if (typingTimerRef.current) clearTimeout(typingTimerRef.current);
+  };
+
+  const schedulePurplePeek = () => {
+    if (peekTimerRef.current) clearTimeout(peekTimerRef.current);
+    if (!showPasswordRef.current || !passwordRef.current) return;
+    peekTimerRef.current = setTimeout(() => {
+      if (!showPasswordRef.current || !passwordRef.current) return;
+      setIsPurplePeeking(true);
+      peekTimerRef.current = setTimeout(() => {
+        setIsPurplePeeking(false);
+        schedulePurplePeek();
+      }, 800);
+    }, Math.random() * 3000 + 2000);
+  };
+
+  const togglePassword = () => {
+    setShowPassword((visible) => {
+      const nextVisible = !visible;
+      showPasswordRef.current = nextVisible;
+      if (nextVisible) schedulePurplePeek();
+      else {
+        if (peekTimerRef.current) clearTimeout(peekTimerRef.current);
+        setIsPurplePeeking(false);
+      }
+      return nextVisible;
     });
   };
 
+  const switchMode = () => {
+    onModeChange(mode === 'login' ? 'register' : 'login');
+    window.setTimeout(() => usernameInputRef.current?.focus(), 0);
+  };
+
+  const purplePosition = calcPosition(purpleRef.current);
+  const blackPosition = calcPosition(blackRef.current);
+  const orangePosition = calcPosition(orangeRef.current);
+  const yellowPosition = calcPosition(yellowRef.current);
+  const isLoginError = Boolean(message);
+  const isShowingPassword = form.password.length > 0 && showPassword;
+  const isLookingAway = focusedField === 'password' && !showPassword;
+  const purplePupilOffset = calcPupilOffset(purpleEyeRef.current, 5);
+  const blackPupilOffset = calcPupilOffset(blackEyeRef.current, 4);
+  const orangePupilOffset = calcPupilOffset(orangePupilRef.current, 5);
+  const yellowPupilOffset = calcPupilOffset(yellowPupilRef.current, 5);
+
+  const purpleStyle = isShowingPassword
+    ? { transform: 'skewX(0deg)', height: 370 }
+    : isLookingAway
+      ? { transform: 'skewX(-14deg) translateX(-20px)', height: 410 }
+      : isTyping
+        ? { transform: `skewX(${purplePosition.bodySkew - 12}deg) translateX(40px)`, height: 410 }
+        : { transform: `skewX(${purplePosition.bodySkew}deg)`, height: 370 };
+  const blackStyle = isShowingPassword
+    ? { transform: 'skewX(0deg)' }
+    : isLookingAway
+      ? { transform: 'skewX(12deg) translateX(-10px)' }
+      : isLookingAtEachOther
+        ? { transform: `skewX(${blackPosition.bodySkew * 1.5 + 10}deg) translateX(20px)` }
+        : isTyping
+          ? { transform: `skewX(${blackPosition.bodySkew * 1.5}deg)` }
+          : { transform: `skewX(${blackPosition.bodySkew}deg)` };
+
+  const purpleEyes = isLoginError
+    ? { left: 30, top: 55, pupil: { x: -3, y: 4 } }
+    : isLookingAway
+      ? { left: 20, top: 25, pupil: { x: -5, y: -5 } }
+      : isShowingPassword
+        ? { left: 20, top: 35, pupil: isPurplePeeking ? { x: 4, y: 5 } : { x: -4, y: -4 } }
+        : isLookingAtEachOther
+          ? { left: 55, top: 65, pupil: { x: 3, y: 4 } }
+          : { left: 45 + purplePosition.faceX, top: 40 + purplePosition.faceY, pupil: purplePupilOffset };
+  const blackEyes = isLoginError
+    ? { left: 15, top: 40, pupil: { x: -3, y: 4 } }
+    : isLookingAway
+      ? { left: 10, top: 20, pupil: { x: -4, y: -5 } }
+      : isShowingPassword
+        ? { left: 10, top: 28, pupil: { x: -4, y: -4 } }
+        : isLookingAtEachOther
+          ? { left: 32, top: 12, pupil: { x: 0, y: -4 } }
+          : { left: 26 + blackPosition.faceX, top: 32 + blackPosition.faceY, pupil: blackPupilOffset };
+  const orangeEyes = isLoginError
+    ? { left: 60, top: 95, pupil: { x: -3, y: 4 } }
+    : isLookingAway
+      ? { left: 50, top: 75, pupil: { x: -5, y: -5 } }
+      : isShowingPassword
+        ? { left: 50, top: 85, pupil: { x: -5, y: -4 } }
+        : { left: 82 + orangePosition.faceX, top: 90 + orangePosition.faceY, pupil: orangePupilOffset };
+  const yellowEyes = isLoginError
+    ? { left: 35, top: 45, pupil: { x: -3, y: 4 } }
+    : isLookingAway
+      ? { left: 20, top: 30, pupil: { x: -5, y: -5 } }
+      : isShowingPassword
+        ? { left: 20, top: 35, pupil: { x: -5, y: -4 } }
+        : { left: 52 + yellowPosition.faceX, top: 40 + yellowPosition.faceY, pupil: yellowPupilOffset };
+  const yellowMouth = isLoginError
+    ? { left: 30, top: 92, transform: 'rotate(-8deg)' }
+    : isLookingAway
+      ? { left: 15, top: 78, transform: 'rotate(0deg)' }
+      : isShowingPassword
+        ? { left: 10, top: 88, transform: 'rotate(0deg)' }
+        : { left: 40 + yellowPosition.faceX, top: 88 + yellowPosition.faceY, transform: 'rotate(0deg)' };
+  const orangeMouth = isLoginError
+    ? { left: 80 + orangePosition.faceX, top: 130 }
+    : { left: 90, top: 120 };
+
   return <div className="auth-screen">
-    <section className={`auth-panel auth-panel--${mode} ${message ? 'has-error' : ''}`} aria-label={mode === 'login' ? '用户登录' : '用户注册'}>
-      <div className="auth-journey-scene" data-signal={signalState} data-focus={focusedField ?? 'idle'} onMouseMove={followPointer} onMouseLeave={() => setLookDirection({ x: 0, y: 0 })}>
-        <div className="auth-scene-label"><span>TRAFFIC FLOW</span><i aria-hidden="true" /></div>
-        <img className="auth-cityscape" src="/illustrations/fluent-cityscape.png" alt="" aria-hidden="true" />
-        <div className="auth-road-markings" aria-hidden="true"><i /><i /><i /></div>
-        <div className="auth-bus" aria-hidden="true">
-          <img className="auth-bus-art" src="/illustrations/fluent-bus.png" alt="" />
-          <div className="auth-driver">
-            <i className="auth-driver-neck" />
-            <span className="auth-driver-head">
-              <i className="auth-driver-ear" />
-              <b className="auth-driver-eye"><i className="auth-driver-pupil" style={{ transform: `translate(${lookDirection.x}px, ${lookDirection.y}px)` }} /></b>
-              <b className="auth-driver-eye"><i className="auth-driver-pupil" style={{ transform: `translate(${lookDirection.x}px, ${lookDirection.y}px)` }} /></b>
-              <i className="auth-driver-smile" />
-            </span>
+    <div className="auth-stage">
+      <section className={`auth-panel animated-auth-panel auth-panel--${mode} ${message ? 'has-error' : ''} ${leaving ? 'is-leaving' : ''}`} data-focus={focusedField ?? 'idle'} data-showing-password={showPassword ? 'true' : 'false'} aria-label={mode === 'login' ? '用户登录' : '用户注册'}>
+        <div className="animated-auth-visual">
+          <div className="animated-auth-brand"><Sparkles size={20} aria-hidden="true" /><span>TRAFFIC FLOW</span></div>
+          <div className="animated-characters-wrapper">
+            <div className="animated-characters-scene" aria-hidden="true">
+              <div ref={purpleRef} className="animated-character char-purple" style={purpleStyle}>
+                <div className="animated-eyes purple-eyes" style={{ left: purpleEyes.left, top: purpleEyes.top }}><i ref={purpleEyeRef} className="animated-eyeball" style={{ height: isPurpleBlinking ? 2 : 18 }}><b className="animated-pupil" style={{ transform: `translate(${purpleEyes.pupil.x}px, ${purpleEyes.pupil.y}px)` }} /></i><i className="animated-eyeball" style={{ height: isPurpleBlinking ? 2 : 18 }}><b className="animated-pupil" style={{ transform: `translate(${purpleEyes.pupil.x}px, ${purpleEyes.pupil.y}px)` }} /></i></div>
+              </div>
+              <div ref={blackRef} className="animated-character char-black" style={blackStyle}>
+                <div className="animated-eyes black-eyes" style={{ left: blackEyes.left, top: blackEyes.top }}><i ref={blackEyeRef} className="animated-eyeball" style={{ height: isBlackBlinking ? 2 : 16 }}><b className="animated-pupil" style={{ transform: `translate(${blackEyes.pupil.x}px, ${blackEyes.pupil.y}px)` }} /></i><i className="animated-eyeball" style={{ height: isBlackBlinking ? 2 : 16 }}><b className="animated-pupil" style={{ transform: `translate(${blackEyes.pupil.x}px, ${blackEyes.pupil.y}px)` }} /></i></div>
+              </div>
+              <div ref={orangeRef} className="animated-character char-orange" style={{ transform: isShowingPassword ? 'skewX(0deg)' : `skewX(${orangePosition.bodySkew}deg)` }}>
+                <div className="animated-eyes orange-eyes" style={{ left: orangeEyes.left, top: orangeEyes.top }}><b ref={orangePupilRef} className="animated-bare-pupil" style={{ transform: `translate(${orangeEyes.pupil.x}px, ${orangeEyes.pupil.y}px)` }} /><b className="animated-bare-pupil" style={{ transform: `translate(${orangeEyes.pupil.x}px, ${orangeEyes.pupil.y}px)` }} /></div>
+                <i className="animated-orange-mouth" style={orangeMouth} />
+              </div>
+              <div ref={yellowRef} className="animated-character char-yellow" style={{ transform: isShowingPassword ? 'skewX(0deg)' : `skewX(${yellowPosition.bodySkew}deg)` }}>
+                <div className="animated-eyes yellow-eyes" style={{ left: yellowEyes.left, top: yellowEyes.top }}><b ref={yellowPupilRef} className="animated-bare-pupil" style={{ transform: `translate(${yellowEyes.pupil.x}px, ${yellowEyes.pupil.y}px)` }} /><b className="animated-bare-pupil" style={{ transform: `translate(${yellowEyes.pupil.x}px, ${yellowEyes.pupil.y}px)` }} /></div>
+                <i className="animated-yellow-mouth" style={yellowMouth} />
+              </div>
+            </div>
+          </div>
+          <p className="animated-auth-caption">道路目标检测平台</p>
+        </div>
+        <div className="auth-content">
+          <div className="auth-road-scene">
+            <div className="auth-road-surface" aria-hidden="true" />
+            <div className="auth-car" aria-hidden="true"><Car size={40} strokeWidth={1.7} /></div>
+            <div className="auth-crosswalk" aria-hidden="true"><i /><i /><i /><i /><i /><i /><i /></div>
+            <div className="auth-signal" data-signal={signalState} role="status" aria-label={signalLabel}>
+              <i className="auth-signal-lamp auth-signal-lamp--red" />
+              <i className="auth-signal-lamp auth-signal-lamp--yellow" />
+              <i className="auth-signal-lamp auth-signal-lamp--green" />
+            </div>
+          </div>
+          <div className="auth-form-container">
+            <div className="auth-heading">
+              <h1>{mode === 'login' ? '欢迎回来！' : '创建账号'}</h1>
+              <p>{mode === 'login' ? '请输入你的账号和密码' : '填写账号和密码以开始使用'}</p>
+            </div>
+            <form className="auth-form" onSubmit={onSubmit}>
+              <label className={focusedField === 'username' ? 'auth-input-field focused' : 'auth-input-field'}>
+                <span>账号</span>
+                <span className="auth-input-wrapper"><input ref={usernameInputRef} value={form.username} autoComplete="username" onFocus={startUsernameInteraction} onBlur={endUsernameInteraction} onChange={(event) => onChange({ ...form, username: event.target.value })} placeholder="输入用户名" minLength={3} maxLength={32} required /></span>
+              </label>
+              <label className={focusedField === 'password' ? 'auth-input-field focused' : 'auth-input-field'}>
+                <span>密码</span>
+                <span className="auth-input-wrapper"><input value={form.password} type={showPassword ? 'text' : 'password'} autoComplete={mode === 'login' ? 'current-password' : 'new-password'} onFocus={() => setFocusedField('password')} onBlur={() => setFocusedField(null)} onChange={(event) => onChange({ ...form, password: event.target.value })} placeholder="输入密码" minLength={8} required /><button className="auth-password-toggle" type="button" aria-label={showPassword ? '隐藏密码' : '显示密码'} title={showPassword ? '隐藏密码' : '显示密码'} onMouseDown={(event) => event.preventDefault()} onClick={togglePassword}>{showPassword ? <EyeOff size={20} aria-hidden="true" /> : <Eye size={20} aria-hidden="true" />}</button></span>
+              </label>
+              {message && <p className="auth-error" role="alert">{message}</p>}
+              <button className={formReady ? 'auth-submit is-ready' : 'auth-submit'} type="submit" disabled={busy || leaving || !formReady}>
+                {busy ? <Loader2 className="spin" size={17} aria-hidden="true" /> : <><span className="auth-submit-label">{mode === 'login' ? '登录' : '注册'}</span><span className="auth-submit-hover">{mode === 'login' ? '登录' : '注册'}<ArrowRight size={18} aria-hidden="true" /></span></>}
+              </button>
+            </form>
+            <p className="auth-mode-switch">{mode === 'login' ? '还没有账号？' : '已经有账号？'}<button type="button" onClick={switchMode}>{mode === 'login' ? '注册' : '登录'}</button></p>
           </div>
         </div>
-        <div className="auth-traffic-light" aria-label={signalState === 'go' ? '可以通行' : signalState === 'ready' ? '准备通行' : '暂停通行'}>
-          <img className="auth-traffic-light-art" src="/illustrations/fluent-traffic-light.png" alt="" />
-          <span className="auth-signal-glow" />
-        </div>
-      </div>
-      <div className="auth-content">
-        <div className="auth-heading">
-          <p className="eyebrow">道路目标检测平台</p>
-          <h1>{mode === 'login' ? '欢迎回来' : '创建你的账号'}</h1>
-          <p>{mode === 'login' ? '登录后查看并管理你的检测任务。' : '注册后检测记录将仅归属于当前账号。'}</p>
-        </div>
-        <div className="auth-mode-tabs" role="tablist" aria-label="账户操作">
-          <button className={mode === 'login' ? 'selected' : ''} type="button" role="tab" aria-selected={mode === 'login'} onClick={() => onModeChange('login')}>登录</button>
-          <button className={mode === 'register' ? 'selected' : ''} type="button" role="tab" aria-selected={mode === 'register'} onClick={() => onModeChange('register')}>注册</button>
-        </div>
-        <form className="auth-form" onSubmit={onSubmit}>
-          <label className={focusedField === 'username' ? 'auth-input-field focused' : 'auth-input-field'}>
-            <span>账号</span>
-            <i className="auth-input-icon" aria-hidden="true"><UserCircle size={18} /></i>
-            <input value={form.username} autoComplete="username" onFocus={() => setFocusedField('username')} onBlur={() => setFocusedField(null)} onChange={(event) => onChange({ ...form, username: event.target.value })} placeholder="输入用户名" minLength={3} maxLength={32} required />
-          </label>
-          <label className={focusedField === 'password' ? 'auth-input-field focused' : 'auth-input-field'}>
-            <span>密码</span>
-            <i className="auth-input-icon" aria-hidden="true"><KeyRound size={18} /></i>
-            <input value={form.password} type={showPassword ? 'text' : 'password'} autoComplete={mode === 'login' ? 'current-password' : 'new-password'} onFocus={() => setFocusedField('password')} onBlur={() => setFocusedField(null)} onChange={(event) => onChange({ ...form, password: event.target.value })} placeholder="输入密码" minLength={8} required />
-            <button className="auth-password-toggle" type="button" aria-label={showPassword ? '隐藏密码' : '显示密码'} title={showPassword ? '隐藏密码' : '显示密码'} onMouseDown={(event) => event.preventDefault()} onClick={() => setShowPassword((visible) => !visible)}>{showPassword ? <EyeOff size={18} aria-hidden="true" /> : <Eye size={18} aria-hidden="true" />}</button>
-          </label>
-          {message && <p className="auth-error" role="alert">{message}</p>}
-          <button className={formReady ? 'auth-submit is-ready' : 'auth-submit'} type="submit" disabled={busy || !formReady}>{busy ? <Loader2 className="spin" size={17} aria-hidden="true" /> : <>{mode === 'login' ? '登录系统' : '创建账号'}<ArrowRight size={18} aria-hidden="true" /></>}</button>
-        </form>
-      </div>
-    </section>
+      </section>
+    </div>
   </div>;
 }
 
