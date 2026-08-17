@@ -5,12 +5,16 @@
 - 基础地址：`http://127.0.0.1:8000`。
 - JSON 接口使用 `application/json`；图片、视频、模型和数据集上传使用 `multipart/form-data`。
 - 成功响应为 200/202；参数或格式错误为 400/413；资源不存在为 404；依赖服务不可用为 503。
+- 除 `/health`、`/metrics` 和系统状态接口外，业务接口需要在请求头中携带 `Authorization: Bearer <access_token>`。Token 通过注册或登录接口获得。
 - 在线交互式文档：`GET /docs`；OpenAPI JSON：`GET /openapi.json`。
 
 ## 2. 接口总览
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
+| POST | `/api/auth/register` | 创建账号并返回 Token |
+| POST | `/api/auth/login` | 登录并返回 Token |
+| GET | `/api/auth/me` | 查询当前账号 |
 | GET | `/health` | 服务、模型、统计服务和主机资源健康状态 |
 | GET | `/api/system/info` | 应用版本、功能开关和默认模型信息 |
 | GET | `/api/inference-device` | 当前推理设备状态 |
@@ -18,6 +22,8 @@
 | POST | `/api/detect-vehicles` | 图片检测及可选历史保存、基准线统计 |
 | POST | `/api/detect-video` | 创建视频后台检测任务 |
 | GET | `/api/video-jobs/{job_id}` | 查询单个视频任务 |
+| GET | `/api/media/images/{filename}` | 使用登录 Token 获取当前用户的检测图片 |
+| GET | `/api/media/videos/{filename}` | 使用登录 Token 获取当前用户的视频结果 |
 | GET | `/api/history` | 查询检测历史 |
 | DELETE | `/api/history/{history_id}` | 删除单条历史记录及关联应用媒体 |
 | DELETE | `/api/history` | 批量删除选中历史记录 |
@@ -55,6 +61,7 @@
 
 ```bash
 curl -X POST http://127.0.0.1:8000/api/detect-vehicles \
+  -H "Authorization: Bearer <access_token>" \
   -F "image=@test_images/1.jpg" \
   -F "record_history=true" \
   -F "baseline_enabled=true" \
@@ -86,6 +93,7 @@ curl -X POST http://127.0.0.1:8000/api/detect-vehicles \
 
 ```bash
 curl -X POST http://127.0.0.1:8000/api/detect-video \
+  -H "Authorization: Bearer <access_token>" \
   -F "video=@test_samples/ny_traffic.mp4" \
   -F "baseline_enabled=true" \
   -F "baseline_orientation=horizontal" \
@@ -96,7 +104,8 @@ curl -X POST http://127.0.0.1:8000/api/detect-video \
 随后查询：
 
 ```bash
-curl http://127.0.0.1:8000/api/video-jobs/{job_id}
+curl http://127.0.0.1:8000/api/video-jobs/{job_id} \
+  -H "Authorization: Bearer <access_token>"
 ```
 
 任务 `status` 依次为 `queued`、`running`、`completed` 或 `failed`。完成结果包含 `frames_processed`、`class_counts`、`flow_counts`、`processing_time` 和 `output_path`。
@@ -105,13 +114,16 @@ curl http://127.0.0.1:8000/api/video-jobs/{job_id}
 
 ```bash
 # 获取最近 50 条
-curl "http://127.0.0.1:8000/api/history?limit=50"
+curl "http://127.0.0.1:8000/api/history?limit=50" \
+  -H "Authorization: Bearer <access_token>"
 
 # 删除一条
-curl -X DELETE http://127.0.0.1:8000/api/history/{history_id}
+curl -X DELETE http://127.0.0.1:8000/api/history/{history_id} \
+  -H "Authorization: Bearer <access_token>"
 
 # 批量删除
 curl -X DELETE http://127.0.0.1:8000/api/history \
+  -H "Authorization: Bearer <access_token>" \
   -H "Content-Type: application/json" \
   -d '{"ids":["id-1","id-2"]}'
 ```
@@ -165,7 +177,7 @@ POST /api/experiments/compare
 
 ### 3.6 WebSocket 事件
 
-连接地址：`ws://127.0.0.1:8000/ws/traffic-updates`。
+连接地址：`ws://127.0.0.1:8000/ws/traffic-updates?token=<access_token>`。WebSocket 必须使用有效 Token；视频进度和图片检测事件只会推送给任务所属账号，路口状态等系统事件仍会推送给所有已登录连接。
 
 | 事件类型 | 含义 |
 |---|---|

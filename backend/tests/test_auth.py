@@ -24,6 +24,30 @@ def test_history_is_isolated_by_user(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_background_jobs_are_isolated_by_user(tmp_path):
+    repository = ProjectRepository(tmp_path / "storage")
+    repository.initialize()
+    first = repository.create_user("alice", get_password_hash("password123"))
+    second = repository.create_user("bob", get_password_hash("password123"))
+    assert first and second
+
+    alice_job = repository.create_job("video", {"source_name": "alice.mp4"}, user_id=first["id"])
+    bob_job = repository.create_job("training", {"dataset_id": "bob-dataset"}, user_id=second["id"])
+
+    assert [job["id"] for job in repository.list_jobs(user_id=first["id"])] == [alice_job["id"]]
+    assert repository.get_job(alice_job["id"], second["id"]) is None
+    assert repository.get_job(alice_job["id"], first["id"])["id"] == alice_job["id"]
+
+    with pytest.raises(HTTPException) as error:
+        await main.get_video_job(alice_job["id"], repository, second)
+    assert error.value.status_code == 404
+
+    visible = await main.get_video_job(alice_job["id"], repository, first)
+    assert visible["id"] == alice_job["id"]
+    assert repository.get_job(bob_job["id"], first["id"]) is None
+
+
+@pytest.mark.asyncio
 async def test_register_and_login_return_bearer_token(tmp_path):
     repository = ProjectRepository(tmp_path / "storage")
     repository.initialize()

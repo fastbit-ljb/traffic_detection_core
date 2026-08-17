@@ -237,12 +237,14 @@ class ApiRequestError extends Error {
 
 const annotatedImageUrl = (path?: string | null) => {
   const fileName = path?.split(/[\\/]/).pop();
-  return fileName ? `${API_BASE_URL}/static/${fileName}` : null;
+  const token = window.localStorage.getItem(AUTH_TOKEN_KEY);
+  return fileName && token ? `${API_BASE_URL}/api/media/images/${encodeURIComponent(fileName)}?token=${encodeURIComponent(token)}` : null;
 };
 
 const videoUrl = (path?: string | null, version?: string) => {
   const fileName = path?.split(/[\\/]/).pop();
-  return fileName ? `${API_BASE_URL}/videos/${fileName}?v=${encodeURIComponent(version ?? fileName)}` : null;
+  const token = window.localStorage.getItem(AUTH_TOKEN_KEY);
+  return fileName && token ? `${API_BASE_URL}/api/media/videos/${encodeURIComponent(fileName)}?v=${encodeURIComponent(version ?? fileName)}&token=${encodeURIComponent(token)}` : null;
 };
 
 const formatTime = (value?: string) => value ? new Date(value).toLocaleString('zh-CN', { hour12: false }) : '-';
@@ -549,7 +551,9 @@ export function TrafficDashboard() {
       setSocketConnected(false);
       return undefined;
     }
-    const socket = new WebSocket(`${API_BASE_URL.replace(/^http/, 'ws')}/ws/traffic-updates`);
+    const token = window.localStorage.getItem(AUTH_TOKEN_KEY);
+    if (!token) return undefined;
+    const socket = new WebSocket(`${API_BASE_URL.replace(/^http/, 'ws')}/ws/traffic-updates?token=${encodeURIComponent(token)}`);
     socket.onopen = () => setSocketConnected(true);
     socket.onclose = () => setSocketConnected(false);
     socket.onerror = () => setSocketConnected(false);
