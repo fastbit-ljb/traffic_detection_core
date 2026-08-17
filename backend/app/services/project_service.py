@@ -459,7 +459,7 @@ class ProjectRepository:
         placeholders = ", ".join("?" for _ in unique_history_ids)
         with self._lock, self._connection() as connection:
             query = f"SELECT * FROM detection_history WHERE id IN ({placeholders})"
-            query_params: List[Any] = unique_history_ids
+            query_params: List[Any] = [*unique_history_ids]
             if user_id is not None:
                 query += " AND user_id = ?"
                 query_params.append(user_id)
@@ -468,7 +468,7 @@ class ProjectRepository:
             deleted_ids = set(entries_by_id)
             if deleted_ids:
                 delete_query = f"DELETE FROM detection_history WHERE id IN ({placeholders})"
-                delete_params: List[Any] = unique_history_ids
+                delete_params: List[Any] = [*unique_history_ids]
                 if user_id is not None:
                     delete_query += " AND user_id = ?"
                     delete_params.append(user_id)
