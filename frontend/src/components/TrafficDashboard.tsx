@@ -270,6 +270,7 @@ export function TrafficDashboard() {
   const [selectedHistoryIds, setSelectedHistoryIds] = useState<string[]>([]);
   const [deletingHistoryIds, setDeletingHistoryIds] = useState<string[]>([]);
   const [pendingHistoryDeletion, setPendingHistoryDeletion] = useState<HistoryEntry[] | null>(null);
+  const [historyDeletionError, setHistoryDeletionError] = useState<string | null>(null);
   const [trainingJobs, setTrainingJobs] = useState<Job[]>([]);
   const [trainingRuns, setTrainingRuns] = useState<Job[]>([]);
   const [comparisonJobs, setComparisonJobs] = useState<Job[]>([]);
@@ -427,7 +428,8 @@ export function TrafficDashboard() {
 
   const deleteHistoryEntries = useCallback(async (entries: HistoryEntry[]) => {
     const ids = [...new Set(entries.map((entry) => entry.id))];
-    if (!ids.length) return;
+    if (!ids.length) return false;
+    setHistoryDeletionError(null);
     setDeletingHistoryIds(ids);
     try {
       const result = await api<{ deleted_ids: string[] }>('/api/history', {
@@ -435,17 +437,31 @@ export function TrafficDashboard() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ids }),
       });
-      const deletedIds = new Set(result.deleted_ids.length ? result.deleted_ids : ids);
+      const deletedIds = new Set(Array.isArray(result.deleted_ids) ? result.deleted_ids : []);
+      if (!deletedIds.size) {
+        const errorMessage = '未删除任何检测记录。记录可能已被移除，或当前账号没有删除权限。';
+        await refreshHistory();
+        setHistoryDeletionError(errorMessage);
+        setMessage(errorMessage);
+        return false;
+      }
       setHistory((current) => current.filter((item) => !deletedIds.has(item.id)));
       setSelectedHistoryIds((current) => current.filter((id) => !deletedIds.has(id)));
       setSelectedHistoryEntry((current) => current && deletedIds.has(current.id) ? null : current);
-      setMessage(deletedIds.size > 1 ? `已删除 ${deletedIds.size} 条检测记录` : '检测记录已删除');
+      const retainedCount = ids.length - deletedIds.size;
+      setMessage(retainedCount > 0
+        ? `已删除 ${deletedIds.size} 条检测记录，${retainedCount} 条未删除`
+        : deletedIds.size > 1 ? `已删除 ${deletedIds.size} 条检测记录` : '检测记录已删除');
+      return true;
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : '删除检测记录失败');
+      const errorMessage = error instanceof Error ? error.message : '删除检测记录失败';
+      setHistoryDeletionError(errorMessage);
+      setMessage(errorMessage);
+      return false;
     } finally {
       setDeletingHistoryIds([]);
     }
-  }, []);
+  }, [refreshHistory]);
 
   const requestHistoryDeletion = useCallback((entries: HistoryEntry[]) => {
     const seenIds = new Set<string>();
@@ -454,7 +470,10 @@ export function TrafficDashboard() {
       seenIds.add(entry.id);
       return true;
     });
-    if (uniqueEntries.length) setPendingHistoryDeletion(uniqueEntries);
+    if (uniqueEntries.length) {
+      setHistoryDeletionError(null);
+      setPendingHistoryDeletion(uniqueEntries);
+    }
   }, []);
 
   const deleteHistory = useCallback((entry: HistoryEntry) => {
@@ -467,8 +486,7 @@ export function TrafficDashboard() {
 
   const confirmHistoryDeletion = useCallback(async () => {
     if (!pendingHistoryDeletion) return;
-    await deleteHistoryEntries(pendingHistoryDeletion);
-    setPendingHistoryDeletion(null);
+    if (await deleteHistoryEntries(pendingHistoryDeletion)) setPendingHistoryDeletion(null);
   }, [deleteHistoryEntries, pendingHistoryDeletion]);
 
   const toggleHistorySelection = useCallback((historyId: string, selected: boolean) => {
@@ -980,7 +998,7 @@ names: [person, car, bus, truck]`}</pre>
         </aside>
       </div>
       {selectedHistoryEntry && <HistoryDetail entry={selectedHistoryEntry} darkMode={theme === 'dark'} onClose={() => setSelectedHistoryEntry(null)} />}
-      {pendingHistoryDeletion && <HistoryDeleteDialog entries={pendingHistoryDeletion} busy={deletingHistoryIds.length > 0} onCancel={() => setPendingHistoryDeletion(null)} onConfirm={() => void confirmHistoryDeletion()} />}
+      {pendingHistoryDeletion && <HistoryDeleteDialog entries={pendingHistoryDeletion} busy={deletingHistoryIds.length > 0} error={historyDeletionError} onCancel={() => { setHistoryDeletionError(null); setPendingHistoryDeletion(null); }} onConfirm={() => void confirmHistoryDeletion()} />}
     </div>
   );
 }
@@ -1211,11 +1229,11 @@ function HistoryDetail({ entry, darkMode, onClose }: { entry: HistoryEntry; dark
   </div>;
 }
 
-function HistoryDeleteDialog({ entries, busy, onCancel, onConfirm }: { entries: HistoryEntry[]; busy: boolean; onCancel: () => void; onConfirm: () => void }) {
+function HistoryDeleteDialog({ entries, busy, error, onCancel, onConfirm }: { entries: HistoryEntry[]; busy: boolean; error: string | null; onCancel: () => void; onConfirm: () => void }) {
   const label = entries.length === 1 ? `删除“${entries[0].source_name}”` : `删除 ${entries.length} 条检测记录`;
   return <div className="history-dialog-backdrop" role="presentation" onMouseDown={(event) => { if (!busy && event.currentTarget === event.target) onCancel(); }}>
     <section className="history-delete-dialog" role="dialog" aria-modal="true" aria-labelledby="history-delete-title" aria-describedby="history-delete-description">
-      <p className="section-kicker">删除确认</p><h3 id="history-delete-title">{label}</h3><p id="history-delete-description">删除后无法恢复。</p>
+      <p className="section-kicker">删除确认</p><h3 id="history-delete-title">{label}</h3><p id="history-delete-description">删除后无法恢复。</p>{error && <p className="history-delete-error" role="alert">{error}</p>}
       <div className="history-delete-actions"><button className="text-button" type="button" disabled={busy} onClick={onCancel}>取消</button><button className="command-button danger" type="button" disabled={busy} onClick={onConfirm}>{busy ? <Loader2 className="spin" size={16} aria-hidden="true" /> : <Trash2 size={16} aria-hidden="true" />}确认删除</button></div>
     </section>
   </div>;
