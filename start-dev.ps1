@@ -20,15 +20,21 @@ function Test-ListeningPort {
 }
 
 function Wait-ForHealth {
-    param([string]$Url)
+    param(
+        [string]$Url,
+        [int]$MaxAttempts = 300
+    )
 
-    for ($attempt = 1; $attempt -le 20; $attempt++) {
+    for ($attempt = 1; $attempt -le $MaxAttempts; $attempt++) {
         try {
             $health = Invoke-RestMethod "$Url/health" -TimeoutSec 3
             if ($health.status) {
                 return $health
             }
         } catch {
+            if ($attempt % 15 -eq 0) {
+                Write-Host "Backend is still starting ($attempt/$MaxAttempts). First startup may download and load YOLO weights..." -ForegroundColor Yellow
+            }
             Start-Sleep -Seconds 1
         }
     }
@@ -38,7 +44,7 @@ function Wait-ForHealth {
         Write-Host "Backend error log:" -ForegroundColor Red
         Get-Content $errorLog -Tail 80
     }
-    throw "Backend did not become healthy. Check logs/backend-dev.err.log."
+    throw "Backend did not become healthy within $MaxAttempts seconds. Check logs/backend-dev.err.log."
 }
 
 function Get-ContentHash {
