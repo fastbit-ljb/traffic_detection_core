@@ -23,7 +23,7 @@ Set-ExecutionPolicy -Scope Process Bypass
 .\start-dev.ps1
 ```
 
-首次启动需要联网下载依赖，之后只有 `backend/requirements.txt` 或 `frontend/package-lock.json` 变更时才会重新安装。运行产生的 `.venv/` 和 `node_modules/` 是本机缓存，可删除后由脚本自动恢复。
+首次启动需要联网下载依赖；若本机尚无 YOLOv8n 权重，后端还会下载约 6 MB 的模型文件并加载，网络较慢时会多等待几分钟。脚本会持续等待最多 5 分钟，并显示启动进度；之后只有 `backend/requirements.txt` 或 `frontend/package-lock.json` 变更时才会重新安装。运行产生的 `.venv/`、`node_modules/` 和模型缓存均为本机缓存，可删除后由脚本自动恢复。
 
 若需要从新窗口启动并保留终端输出，请使用：
 
