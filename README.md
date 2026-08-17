@@ -33,6 +33,10 @@ pwsh -NoExit -ExecutionPolicy Bypass -File D:\路径\traffic_detection_core\star
 
 启动完成后访问 `http://127.0.0.1:5173`，接口文档位于 `http://127.0.0.1:8000/docs`。
 
+## 账户与历史记录
+
+服务器分支启用了轻量账户功能。首次访问先注册或登录，登录后检测请求会自动携带 Token；检测历史写入 SQLite 时绑定当前用户，查询和删除接口只允许访问自己的记录。密码使用 bcrypt 哈希保存，不保存明文密码。生产部署前请设置长度不少于 32 个字符的 `TRAFFIC_JWT_SECRET_KEY`，否则服务重启后自动生成的临时密钥会使已有登录 Token 失效。
+
 ## 推理设备
 
 默认启动方式会优先检查系统 Python 是否已有可用的 CUDA PyTorch、FastAPI、Ultralytics 和 OpenCV；如果完整则直接复用系统环境。系统环境不完整时，脚本才会创建项目虚拟环境，并根据 NVIDIA 驱动自动安装匹配的 CUDA 运行时；没有 NVIDIA GPU 或驱动不可用时安装 CPU 运行时。无需单独安装 CUDA Toolkit，但 NVIDIA GPU 必须已安装可用驱动。

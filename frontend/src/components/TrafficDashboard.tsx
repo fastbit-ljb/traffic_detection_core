@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type ChangeEvent, type CSSProperties, type MouseEvent } from 'react';
+import { useCallback, useEffect, useRef, useState, type ChangeEvent, type CSSProperties, type FormEvent, type MouseEvent } from 'react';
 import { flushSync } from 'react-dom';
 import { Bar } from 'react-chartjs-2';
 import {
@@ -28,6 +28,7 @@ import {
   History,
   ImagePlus,
   Loader2,
+  LogOut,
   PackageOpen,
   Play,
   Radio,
@@ -60,6 +61,7 @@ const API_BASE_URL = configuredApiBaseUrl
   : import.meta.env.PROD
     ? window.location.origin
     : 'http://127.0.0.1:8000';
+const AUTH_TOKEN_KEY = 'traffic-auth-token';
 
 const TARGETS = [
   { key: 'person', label: '行人', color: '#7c3aed' },
@@ -202,6 +204,18 @@ interface InferenceDeviceStatus {
   device_name?: string | null;
 }
 
+interface AuthUser {
+  id: string;
+  username: string;
+  created_at: string;
+}
+
+interface AuthResponse {
+  access_token: string;
+  token_type: string;
+  user: AuthUser;
+}
+
 const emptyCounts = (): TargetCounts => ({ person: 0, car: 0, bus: 0, truck: 0 });
 const normalizeCounts = (counts?: Partial<TargetCounts>): TargetCounts => ({ ...emptyCounts(), ...counts });
 const emptyFlowCounts = (): FlowCounts => ({ entry: emptyCounts(), exit: emptyCounts() });
@@ -234,7 +248,10 @@ const videoUrl = (path?: string | null, version?: string) => {
 const formatTime = (value?: string) => value ? new Date(value).toLocaleString('zh-CN', { hour12: false }) : '-';
 
 async function api<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(`${API_BASE_URL}${path}`, init);
+  const headers = new Headers(init?.headers);
+  const token = window.localStorage.getItem(AUTH_TOKEN_KEY);
+  if (token && !headers.has('Authorization')) headers.set('Authorization', `Bearer ${token}`);
+  const response = await fetch(`${API_BASE_URL}${path}`, { ...init, headers });
   const payload: { detail?: string } = await response.json().catch(() => ({}));
   if (!response.ok) {
     const detail = response.status === 429 ? '请求过于频繁，请稍后再试' : payload.detail ?? '请求未完成';
@@ -281,11 +298,49 @@ export function TrafficDashboard() {
   const [datasetName, setDatasetName] = useState('');
   const [busyOperation, setBusyOperation] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  const [authReady, setAuthReady] = useState(false);
+  const [authUser, setAuthUser] = useState<AuthUser | null>(null);
+  const [authMode, setAuthMode] = useState<'login' | 'register'>('login');
+  const [authForm, setAuthForm] = useState({ username: '', password: '' });
+  const [authBusy, setAuthBusy] = useState(false);
+  const [authMessage, setAuthMessage] = useState<string | null>(null);
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
     window.localStorage.setItem('traffic-dashboard-theme', theme);
   }, [theme]);
+
+  useEffect(() => {
+    const token = window.localStorage.getItem(AUTH_TOKEN_KEY);
+    if (!token) {
+      setAuthReady(true);
+      return;
+    }
+    void api<AuthUser>('/api/auth/me')
+      .then(setAuthUser)
+      .catch(() => window.localStorage.removeItem(AUTH_TOKEN_KEY))
+      .finally(() => setAuthReady(true));
+  }, []);
+
+  const submitAuth = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setAuthBusy(true);
+    setAuthMessage(null);
+    try {
+      const response = await api<AuthResponse>(`/api/auth/${authMode}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(authForm),
+      });
+      window.localStorage.setItem(AUTH_TOKEN_KEY, response.access_token);
+      setAuthUser(response.user);
+      setAuthForm({ username: '', password: '' });
+    } catch (error) {
+      setAuthMessage(error instanceof Error ? error.message : '认证失败，请稍后重试');
+    } finally {
+      setAuthBusy(false);
+    }
+  };
 
   const toggleTheme = (event: MouseEvent<HTMLButtonElement>) => {
     const nextTheme: ThemeMode = theme === 'light' ? 'dark' : 'light';
@@ -481,13 +536,19 @@ export function TrafficDashboard() {
     setSelectedHistoryIds(selected ? history.map((entry) => entry.id) : []);
   }, [history]);
 
-  useEffect(() => { void refreshResources(); }, [refreshResources]);
+  useEffect(() => {
+    if (authUser) void refreshResources();
+  }, [authUser, refreshResources]);
 
   useEffect(() => {
-    if (activeView === 'history') void refreshHistory();
-  }, [activeView, refreshHistory]);
+    if (authUser && activeView === 'history') void refreshHistory();
+  }, [activeView, authUser, refreshHistory]);
 
   useEffect(() => {
+    if (!authUser) {
+      setSocketConnected(false);
+      return undefined;
+    }
     const socket = new WebSocket(`${API_BASE_URL.replace(/^http/, 'ws')}/ws/traffic-updates`);
     socket.onopen = () => setSocketConnected(true);
     socket.onclose = () => setSocketConnected(false);
@@ -500,7 +561,7 @@ export function TrafficDashboard() {
       }
     };
     return () => socket.close();
-  }, [applyLiveResult, refreshResources]);
+  }, [applyLiveResult, authUser, refreshResources]);
 
   useEffect(() => {
     if (!videoJob || !['queued', 'running'].includes(videoJob.status)) return undefined;
@@ -615,6 +676,14 @@ export function TrafficDashboard() {
     if (videoRef.current) videoRef.current.srcObject = null;
     setCameraLive(false);
   }, []);
+
+  const handleLogout = useCallback(() => {
+    stopCamera();
+    window.localStorage.removeItem(AUTH_TOKEN_KEY);
+    setAuthUser(null);
+    setHistory([]);
+    setMessage(null);
+  }, [stopCamera]);
 
   useEffect(() => stopCamera, [stopCamera]);
 
@@ -818,6 +887,9 @@ export function TrafficDashboard() {
   const imageUrl = imagePreviewUrl ?? annotatedImageUrl(imageResult?.annotated_image_path);
   const processedVideoUrl = videoUrl(videoJob?.result?.output_path, videoJob?.id);
 
+  if (!authReady) return <div className="auth-screen"><section className="auth-panel"><p className="eyebrow">YOLOV8 ROAD OBJECT DETECTION</p><h1>正在检查登录状态</h1></section></div>;
+  if (!authUser) return <AuthPanel mode={authMode} form={authForm} busy={authBusy} message={authMessage} onModeChange={(mode) => { setAuthMode(mode); setAuthMessage(null); }} onChange={setAuthForm} onSubmit={submitAuth} />;
+
   return (
     <div className="app-shell">
       <header className="topbar">
@@ -837,6 +909,8 @@ export function TrafficDashboard() {
             <span className={socketConnected ? 'status-dot online' : 'status-dot'} />
             {socketConnected ? '实时连接' : '连接中断'}
           </div>
+          <span className="auth-user">{authUser.username}</span>
+          <button className="text-button auth-logout" type="button" title="退出登录" onClick={handleLogout}><LogOut size={15} aria-hidden="true" />退出</button>
         </div>
       </header>
 
@@ -982,6 +1056,41 @@ names: [person, car, bus, truck]`}</pre>
       {pendingHistoryDeletion && <HistoryDeleteDialog entries={pendingHistoryDeletion} busy={deletingHistoryIds.length > 0} onCancel={() => setPendingHistoryDeletion(null)} onConfirm={() => void confirmHistoryDeletion()} />}
     </div>
   );
+}
+
+function AuthPanel({
+  mode,
+  form,
+  busy,
+  message,
+  onModeChange,
+  onChange,
+  onSubmit,
+}: {
+  mode: 'login' | 'register';
+  form: { username: string; password: string };
+  busy: boolean;
+  message: string | null;
+  onModeChange: (mode: 'login' | 'register') => void;
+  onChange: (form: { username: string; password: string }) => void;
+  onSubmit: (event: FormEvent<HTMLFormElement>) => void;
+}) {
+  return <div className="auth-screen">
+    <section className="auth-panel" aria-label={mode === 'login' ? '用户登录' : '用户注册'}>
+      <p className="eyebrow">YOLOV8 ROAD OBJECT DETECTION</p>
+      <h1>道路车辆与行人检测系统</h1>
+      <div className="auth-mode-tabs" role="tablist" aria-label="账户操作">
+        <button className={mode === 'login' ? 'selected' : ''} type="button" onClick={() => onModeChange('login')}>登录</button>
+        <button className={mode === 'register' ? 'selected' : ''} type="button" onClick={() => onModeChange('register')}>注册</button>
+      </div>
+      <form className="auth-form" onSubmit={onSubmit}>
+        <label className="field-label">用户名<input value={form.username} autoComplete="username" onChange={(event) => onChange({ ...form, username: event.target.value })} placeholder="3-32 个字符" required /></label>
+        <label className="field-label">密码<input value={form.password} type="password" autoComplete={mode === 'login' ? 'current-password' : 'new-password'} onChange={(event) => onChange({ ...form, password: event.target.value })} placeholder="至少 8 个字符" minLength={8} required /></label>
+        {message && <p className="auth-error" role="alert">{message}</p>}
+        <button className="command-button auth-submit" type="submit" disabled={busy}>{busy ? <Loader2 className="spin" size={16} aria-hidden="true" /> : null}{mode === 'login' ? '登录系统' : '创建账号'}</button>
+      </form>
+    </section>
+  </div>;
 }
 
 function ChineseAnnotation({ target, imageSize }: { target: DetectedTarget; imageSize: { width: number; height: number } }) {

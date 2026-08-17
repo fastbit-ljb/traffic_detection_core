@@ -10,7 +10,7 @@ import time
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict, List, Literal, Optional
+from typing import Any, Dict, List, Literal, Optional
 
 from fastapi import (
     FastAPI, File, Form, UploadFile, WebSocket, WebSocketDisconnect,
@@ -20,7 +20,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import JSONResponse
-from fastapi.security import HTTPBearer
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from fastapi.encoders import jsonable_encoder
 from pydantic import BaseModel, Field
 
@@ -28,7 +28,16 @@ from pydantic import BaseModel, Field
 from .core.config import settings
 from .core.logger import setup_logging, get_application_logger
 from .core.metrics import get_metrics_response, track_emergency_override, update_websocket_connections
-from .core.security import SecurityManager, check_rate_limit, sanitize_filename, validate_file_type
+from .core.security import (
+    SecurityManager,
+    check_rate_limit,
+    create_access_token,
+    get_password_hash,
+    sanitize_filename,
+    validate_file_type,
+    verify_password_hash,
+    verify_token,
+)
 
 # Import middleware
 from .middleware import SecurityMiddleware, MetricsMiddleware, RequestLoggingMiddleware, HealthCheckMiddleware
@@ -166,6 +175,11 @@ class InferenceDeviceRequest(BaseModel):
 
 class HistoryDeletionRequest(BaseModel):
     ids: List[str] = Field(min_length=1, max_length=50)
+
+
+class AuthCredentials(BaseModel):
+    username: str = Field(min_length=3, max_length=32)
+    password: str = Field(min_length=8, max_length=128)
 
 
 @asynccontextmanager
@@ -355,6 +369,71 @@ async def get_project_repository() -> ProjectRepository:
     return project_repository
 
 
+def _public_user(user: Dict[str, Any]) -> Dict[str, Any]:
+    return {key: user[key] for key in ("id", "username", "created_at")}
+
+
+def _normalize_username(username: str) -> str:
+    normalized = username.strip().lower()
+    if not normalized or any(not (character.isalnum() or character in "_-.") for character in normalized):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="用户名只能包含字母、数字、下划线、短横线或点",
+        )
+    return normalized
+
+
+async def get_current_user(
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(security),
+    repository: ProjectRepository = Depends(get_project_repository),
+) -> Dict[str, Any]:
+    """Resolve the bearer token and return the active account."""
+    if not credentials:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="请先登录")
+    payload = verify_token(credentials.credentials)
+    user_id = payload.get("sub") if payload else None
+    user = repository.get_user(user_id) if user_id else None
+    if not user:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="登录已失效，请重新登录")
+    return user
+
+
+def _dependency_user_id(current_user: object) -> Optional[str]:
+    """Keep direct service-level tests backward compatible with dependency defaults."""
+    return current_user.get("id") if isinstance(current_user, dict) else None
+
+
+@app.post("/api/auth/register")
+async def register_account(
+    credentials: AuthCredentials,
+    repository: ProjectRepository = Depends(get_project_repository),
+):
+    username = _normalize_username(credentials.username)
+    user = repository.create_user(username, get_password_hash(credentials.password))
+    if not user:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="用户名已存在")
+    token = create_access_token({"sub": user["id"], "username": user["username"]})
+    return {"access_token": token, "token_type": "bearer", "user": _public_user(user)}
+
+
+@app.post("/api/auth/login")
+async def login_account(
+    credentials: AuthCredentials,
+    repository: ProjectRepository = Depends(get_project_repository),
+):
+    username = _normalize_username(credentials.username)
+    user = repository.get_user_by_username(username)
+    if not user or not verify_password_hash(credentials.password, user["password_hash"]):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="用户名或密码错误")
+    token = create_access_token({"sub": user["id"], "username": user["username"]})
+    return {"access_token": token, "token_type": "bearer", "user": _public_user(user)}
+
+
+@app.get("/api/auth/me")
+async def current_account(current_user: Dict[str, Any] = Depends(get_current_user)):
+    return _public_user(current_user)
+
+
 # Metrics endpoint
 @app.get("/metrics")
 async def metrics_endpoint():
@@ -410,7 +489,8 @@ async def detect_vehicles_endpoint(
     baseline_session: str = Form("camera"),
     detector: IntelligentVehicleDetector = Depends(get_vehicle_detector),
     manager: AdaptiveTrafficManager = Depends(get_traffic_manager),
-    analytics: TrafficAnalyticsService = Depends(get_analytics_service)
+    analytics: TrafficAnalyticsService = Depends(get_analytics_service),
+    current_user: Dict[str, Any] = Depends(get_current_user),
 ):
     """Analyze traffic image and detect vehicles using YOLOv8"""
     try:
@@ -482,6 +562,7 @@ async def detect_vehicles_endpoint(
                 output_path=detection_result.annotated_image_path,
                 model_name=active_model["name"] if active_model else None,
                 original_path=str(original_path),
+                user_id=_dependency_user_id(current_user),
             )
 
         # Broadcast updates to WebSocket clients
@@ -518,16 +599,18 @@ async def detect_vehicles_endpoint(
 async def list_detection_history(
     limit: int = 50,
     repository: ProjectRepository = Depends(get_project_repository),
+    current_user: Dict[str, Any] = Depends(get_current_user),
 ):
-    return repository.list_history(max(1, min(limit, 200)))
+    return repository.list_history(max(1, min(limit, 200)), _dependency_user_id(current_user))
 
 
 @app.delete("/api/history")
 async def delete_detection_history_entries(
     deletion_request: HistoryDeletionRequest,
     repository: ProjectRepository = Depends(get_project_repository),
+    current_user: Dict[str, Any] = Depends(get_current_user),
 ):
-    deleted_ids = repository.delete_history_entries(deletion_request.ids)
+    deleted_ids = repository.delete_history_entries(deletion_request.ids, _dependency_user_id(current_user))
     return {"deleted_ids": deleted_ids}
 
 
@@ -535,8 +618,9 @@ async def delete_detection_history_entries(
 async def delete_detection_history(
     history_id: str,
     repository: ProjectRepository = Depends(get_project_repository),
+    current_user: Dict[str, Any] = Depends(get_current_user),
 ):
-    history_entry = repository.delete_history(history_id)
+    history_entry = repository.delete_history(history_id, _dependency_user_id(current_user))
     if not history_entry:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="检测记录不存在")
     return {"id": history_entry["id"]}
@@ -694,6 +778,7 @@ async def detect_video(
     baseline_direction: str = Form(""),
     baseline_position: float = Form(0.5),
     repository: ProjectRepository = Depends(get_project_repository),
+    current_user: Dict[str, Any] = Depends(get_current_user),
 ):
     if not video_processing_service:
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="视频服务不可用")
@@ -709,7 +794,11 @@ async def detect_video(
     active_model = next((model for model in repository.list_models() if model["is_active"]), None)
     baseline_config = parse_baseline_config(baseline_enabled, baseline_orientation, baseline_position, baseline_direction)
     return video_processing_service.submit(
-        source_path, filename, active_model["name"] if active_model else "unknown", baseline_config
+        source_path,
+        filename,
+        active_model["name"] if active_model else "unknown",
+        baseline_config,
+        user_id=_dependency_user_id(current_user),
     )
 
 
