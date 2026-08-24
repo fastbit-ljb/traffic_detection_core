@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type ChangeEvent, type CSSProperties, type MouseEvent } from 'react';
+import { useCallback, useEffect, useRef, useState, type ChangeEvent, type CSSProperties, type DragEvent as ReactDragEvent, type FormEvent, type MouseEvent, type MouseEvent as ReactMouseEvent } from 'react';
 import { flushSync } from 'react-dom';
 import { Bar } from 'react-chartjs-2';
 import {
@@ -26,7 +26,6 @@ import {
   FileImage,
   FolderOpen,
   History,
-  ImagePlus,
   Loader2,
   PackageOpen,
   Play,
@@ -35,6 +34,7 @@ import {
   Sun,
   Moon,
   Upload,
+  UploadCloud,
   Video,
   X,
   Zap,
@@ -60,6 +60,10 @@ const API_BASE_URL = configuredApiBaseUrl
   : import.meta.env.PROD
     ? window.location.origin
     : 'http://127.0.0.1:8000';
+const IMAGE_ACCEPT = '.jpg,.jpeg,.png,.bmp,image/jpeg,image/png,image/bmp';
+const VIDEO_ACCEPT = '.mp4,.avi,.mov,.mkv,video/mp4,video/x-msvideo,video/quicktime,video/x-matroska';
+const DATASET_ACCEPT = '.zip,application/zip';
+const MODEL_ACCEPT = '.pt';
 
 const TARGETS = [
   { key: 'person', label: '行人', color: '#7c3aed' },
@@ -687,9 +691,8 @@ export function TrafficDashboard() {
     if (imagePreviewUrl) URL.revokeObjectURL(imagePreviewUrl);
   }, [imagePreviewUrl]);
 
-  const onImageUpload = async (event: ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file || imageUploadBusyRef.current) return;
+  const onImageUpload = async (file: File) => {
+    if (imageUploadBusyRef.current) return;
     const requestId = imageRequestRef.current + 1;
     imageRequestRef.current = requestId;
     imageUploadBusyRef.current = true;
@@ -715,13 +718,10 @@ export function TrafficDashboard() {
         imageUploadBusyRef.current = false;
         setBusyOperation(null);
       }
-      event.target.value = '';
     }
   };
 
-  const onVideoUpload = async (event: ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
+  const onVideoUpload = async (file: File) => {
     setBusyOperation('video');
     try {
       const formData = new FormData();
@@ -738,7 +738,6 @@ export function TrafficDashboard() {
       setMessage(error instanceof Error ? error.message : '视频任务创建失败');
     } finally {
       setBusyOperation(null);
-      event.target.value = '';
     }
   };
 
@@ -748,9 +747,7 @@ export function TrafficDashboard() {
     setLiveFlowCounts(emptyFlowCounts());
   };
 
-  const onDatasetUpload = async (event: ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
+  const onDatasetUpload = async (file: File) => {
     setBusyOperation('dataset');
     try {
       const formData = new FormData();
@@ -764,13 +761,10 @@ export function TrafficDashboard() {
       setMessage(error instanceof Error ? error.message : '数据集导入失败');
     } finally {
       setBusyOperation(null);
-      event.target.value = '';
     }
   };
 
-  const onModelUpload = async (event: ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
+  const onModelUpload = async (file: File) => {
     setBusyOperation('model');
     try {
       const formData = new FormData();
@@ -783,7 +777,6 @@ export function TrafficDashboard() {
       setMessage(error instanceof Error ? error.message : '权重上传失败');
     } finally {
       setBusyOperation(null);
-      event.target.value = '';
     }
   };
 
@@ -960,11 +953,20 @@ export function TrafficDashboard() {
           {activeView === 'image' && (
             <div className="view-grid image-grid">
               <section className="panel media-panel">
-                <div className="panel-heading"><div><p className="section-kicker">单张图片</p><h2>图片检测</h2></div><UploadCommand accept="image/jpeg,image/png,image/bmp" title="选择图片" icon={<ImagePlus size={18} />} onChange={onImageUpload} busy={busyOperation === 'image'} /></div>
-                <div className="video-stage image-stage" aria-busy={busyOperation === 'image'}>
-                  {imageUrl ? <div className="detection-image-wrap"><img src={imageUrl} alt="图片检测结果" onLoad={(event) => setImageSize({ width: event.currentTarget.naturalWidth, height: event.currentTarget.naturalHeight })} />{imagePreviewUrl && imageSize && imageResult?.detected_vehicles?.map((target, index) => <ChineseAnnotation key={`${target.vehicle_type}-${index}`} target={target} imageSize={imageSize} />)}</div> : <FileImage className="stage-icon" size={38} aria-hidden="true" />}
-                  {busyOperation === 'image' && <div className="media-processing"><Loader2 className="spin" size={22} aria-hidden="true" /><span>正在检测图片</span></div>}
-                </div>
+                <div className="panel-heading"><div><p className="section-kicker">单张图片</p><h2>图片检测</h2></div></div>
+                <FileDropSurface
+                  accept={IMAGE_ACCEPT}
+                  label="拖放图片到这里"
+                  hint="支持 JPG、PNG、BMP，或点击选择文件"
+                  busyLabel="正在检测图片"
+                  icon={<FileImage size={40} aria-hidden="true" />}
+                  onFile={onImageUpload}
+                  onReject={(file) => setMessage(`${file.name} 不是支持的图片格式`)}
+                  busy={busyOperation === 'image'}
+                  className="video-stage image-stage"
+                >
+                  {imageUrl ? <div className="detection-image-wrap"><img src={imageUrl} alt="图片检测结果" onLoad={(event) => setImageSize({ width: event.currentTarget.naturalWidth, height: event.currentTarget.naturalHeight })} />{imagePreviewUrl && imageSize && imageResult?.detected_vehicles?.map((target, index) => <ChineseAnnotation key={`${target.vehicle_type}-${index}`} target={target} imageSize={imageSize} />)}</div> : null}
+                </FileDropSurface>
               </section>
               <MetricsPanel counts={normalizeCounts(imageResult?.class_counts)} result={imageResult} chartData={{ ...chartData, datasets: [{ ...chartData.datasets[0], data: TARGETS.map((target) => normalizeCounts(imageResult?.class_counts)[target.key]) }] }} darkMode={theme === 'dark'} />
             </div>
@@ -973,8 +975,20 @@ export function TrafficDashboard() {
           {activeView === 'video' && (
             <div className="view-grid video-grid">
               <section className="panel media-panel">
-                <div className="panel-heading"><div><p className="section-kicker">后台任务</p><h2>视频检测</h2></div><UploadCommand accept="video/mp4,video/x-msvideo,video/quicktime,video/x-matroska" title="选择视频" icon={<Video size={18} />} onChange={onVideoUpload} busy={busyOperation === 'video'} /></div>
-                {videoJob ? <VideoJobPanel job={videoJob} url={processedVideoUrl} /> : <VideoUploadStage />}
+                <div className="panel-heading"><div><p className="section-kicker">后台任务</p><h2>视频检测</h2></div></div>
+                <FileDropSurface
+                  accept={VIDEO_ACCEPT}
+                  label="拖放视频到这里"
+                  hint="支持 MP4、AVI、MOV、MKV，或点击选择文件"
+                  busyLabel="正在上传视频"
+                  icon={<Video size={40} aria-hidden="true" />}
+                  onFile={onVideoUpload}
+                  onReject={(file) => setMessage(`${file.name} 不是支持的视频格式`)}
+                  busy={busyOperation === 'video'}
+                  className="video-drop-surface"
+                >
+                  {videoJob ? <VideoJobPanel job={videoJob} url={processedVideoUrl} /> : null}
+                </FileDropSurface>
               </section>
               <VideoStatusPanel job={videoJob} darkMode={theme === 'dark'} />
             </div>
@@ -984,7 +998,8 @@ export function TrafficDashboard() {
             <>
               <div className="management-grid">
                 <section className="panel dataset-panel">
-                <div className="panel-heading"><div><p className="section-kicker">YOLO 格式</p><h2>数据集处理</h2></div><UploadCommand accept=".zip,application/zip" title="导入数据集 ZIP" icon={<FileArchive size={18} />} onChange={onDatasetUpload} busy={busyOperation === 'dataset'} /></div>
+                <div className="panel-heading"><div><p className="section-kicker">YOLO 格式</p><h2>数据集处理</h2></div></div>
+                <FileDropSurface accept={DATASET_ACCEPT} label="拖放 ZIP 数据集" hint="松开后自动校验目录结构" busyLabel="正在导入数据集" icon={<FileArchive size={28} aria-hidden="true" />} onFile={onDatasetUpload} onReject={(file) => setMessage(`${file.name} 不是 ZIP 数据集`)} busy={busyOperation === 'dataset'} compact />
                 <label className="field-label">数据集名称<input value={datasetName} onChange={(event) => setDatasetName(event.target.value)} placeholder="道路人车数据集" /></label>
                 <div className="list-stack">{datasets.map((dataset) => <DatasetRow key={dataset.id} dataset={dataset} selected={selectedDatasetId === dataset.id} onSelect={() => setSelectedDatasetId(dataset.id)} />)}{!datasets.length && <EmptyState icon={<FolderOpen size={28} />} label="导入 ZIP 数据集后显示" />}</div>
                 <div className="dataset-format-hint">
@@ -1042,6 +1057,7 @@ names: [person, car, bus, truck]`}</pre>
             uploadBusy={busyOperation === 'model'}
             deviceBusy={busyOperation === 'inference-device'}
             onModelUpload={onModelUpload}
+            onUploadReject={(file) => setMessage(`${file.name} 不是 PT 权重文件`)}
             onActivate={activateModel}
             onDeviceSelect={selectInferenceDevice}
             baselineConfig={baselineConfig}
@@ -1121,8 +1137,79 @@ function FlowMetricsPanel({ flowCounts, embedded = false, darkMode }: { flowCoun
   );
 }
 
-function UploadCommand({ accept, title, icon, onChange, busy }: { accept: string; title: string; icon: React.ReactNode; onChange: (event: ChangeEvent<HTMLInputElement>) => void; busy: boolean }) {
-  return <label className="icon-button" title={title}>{busy ? <Loader2 className="spin" size={18} aria-hidden="true" /> : icon}<input type="file" accept={accept} onChange={onChange} disabled={busy} /></label>;
+const fileMatchesAccept = (file: File, accept: string) => accept.split(',').some((rawToken) => {
+  const token = rawToken.trim().toLowerCase();
+  const fileName = file.name.toLowerCase();
+  const fileType = file.type.toLowerCase();
+  if (token.startsWith('.')) return fileName.endsWith(token);
+  if (token.endsWith('/*')) return fileType.startsWith(token.slice(0, -1));
+  return fileType === token;
+});
+
+function FileDropSurface({ accept, label, hint, busyLabel, icon, onFile, onReject, busy, compact = false, className = '', children }: {
+  accept: string;
+  label: string;
+  hint: string;
+  busyLabel: string;
+  icon: React.ReactNode;
+  onFile: (file: File) => void | Promise<void>;
+  onReject: (file: File) => void;
+  busy: boolean;
+  compact?: boolean;
+  className?: string;
+  children?: React.ReactNode;
+}) {
+  const inputRef = useRef<HTMLInputElement>(null);
+  const dragDepthRef = useRef(0);
+  const [dragging, setDragging] = useState(false);
+  const hasFiles = (event: ReactDragEvent<HTMLDivElement>) => event.dataTransfer.types.includes('Files');
+  const resetDrag = () => {
+    dragDepthRef.current = 0;
+    setDragging(false);
+  };
+  const acceptFile = (file?: File) => {
+    if (!file || busy) return;
+    if (!fileMatchesAccept(file, accept)) {
+      onReject(file);
+      return;
+    }
+    void onFile(file);
+  };
+  const handleDragEnter = (event: ReactDragEvent<HTMLDivElement>) => {
+    if (!hasFiles(event)) return;
+    event.preventDefault();
+    dragDepthRef.current += 1;
+    setDragging(true);
+  };
+  const handleDragOver = (event: ReactDragEvent<HTMLDivElement>) => {
+    if (!hasFiles(event)) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = busy ? 'none' : 'copy';
+  };
+  const handleDragLeave = (event: ReactDragEvent<HTMLDivElement>) => {
+    if (!hasFiles(event)) return;
+    event.preventDefault();
+    dragDepthRef.current = Math.max(0, dragDepthRef.current - 1);
+    if (!dragDepthRef.current) setDragging(false);
+  };
+  const handleDrop = (event: ReactDragEvent<HTMLDivElement>) => {
+    if (!hasFiles(event)) return;
+    event.preventDefault();
+    const file = event.dataTransfer.files[0];
+    resetDrag();
+    acceptFile(file);
+  };
+
+  return <div className={`file-drop-surface${compact ? ' compact' : ''}${dragging ? ' is-dragging' : ''}${children ? ' has-content' : ''}${className ? ` ${className}` : ''}`} aria-busy={busy} onDragEnter={handleDragEnter} onDragOver={handleDragOver} onDragLeave={handleDragLeave} onDrop={handleDrop}>
+    <input ref={inputRef} className="file-drop-input" type="file" accept={accept} disabled={busy} onChange={(event) => { const file = event.currentTarget.files?.[0]; event.currentTarget.value = ''; acceptFile(file); }} />
+    {children ?? <button className="file-drop-prompt" type="button" onClick={() => inputRef.current?.click()} disabled={busy}>
+      <span className="file-drop-icon">{busy ? <Loader2 className="spin" size={compact ? 26 : 36} aria-hidden="true" /> : icon}</span>
+      <span className="file-drop-copy"><strong>{busy ? busyLabel : label}</strong><small>{busy ? '文件正在处理，请稍候' : hint}</small></span>
+      {!compact && <span className="file-drop-action">选择文件</span>}
+    </button>}
+    {dragging && <div className="file-drop-overlay" aria-hidden="true"><UploadCloud size={compact ? 30 : 44} /><strong>{busy ? '当前任务处理中' : '松开即可导入'}</strong><span>{busy ? '完成后可继续添加文件' : label}</span></div>}
+    {busy && children && <div className="file-drop-busy"><Loader2 className="spin" size={24} aria-hidden="true" /><span>{busyLabel}</span></div>}
+  </div>;
 }
 
 function VideoUploadStage({ label = '选择视频开始检测', busy = false }: { label?: string; busy?: boolean }) {
@@ -1173,12 +1260,13 @@ function InferenceDeviceSwitch({ status, busy, onSelect }: { status: InferenceDe
   return <div className="model-device-options"><GooeyDeviceSwitch activeId={status.active_device} ariaLabel="推理设备" onSelect={(device) => void onSelect(device as 'cpu' | 'cuda')} items={[{ id: 'cpu', label: 'CPU', icon: <Cpu size={15} aria-hidden="true" />, disabled: busy }, { id: 'cuda', label: 'CUDA', icon: <Zap size={15} aria-hidden="true" />, disabled: busy || !status.cuda_available, title: status.cuda_available ? '使用 CUDA 加速推理' : 'CUDA 运行时未安装或不可用' }]} /></div>;
 }
 
-function ModelManagementCard({ models, deviceStatus, uploadBusy, deviceBusy, onModelUpload, onActivate, onDeviceSelect, baselineConfig, showBaselineControls, onBaselineChange }: {
+function ModelManagementCard({ models, deviceStatus, uploadBusy, deviceBusy, onModelUpload, onUploadReject, onActivate, onDeviceSelect, baselineConfig, showBaselineControls, onBaselineChange }: {
   models: ProjectModel[];
   deviceStatus: InferenceDeviceStatus | null;
   uploadBusy: boolean;
   deviceBusy: boolean;
-  onModelUpload: (event: ChangeEvent<HTMLInputElement>) => void;
+  onModelUpload: (file: File) => void | Promise<void>;
+  onUploadReject: (file: File) => void;
   onActivate: (modelId: string) => Promise<void>;
   onDeviceSelect: (device: 'cpu' | 'cuda') => Promise<void>;
   baselineConfig: BaselineConfig;
@@ -1187,7 +1275,8 @@ function ModelManagementCard({ models, deviceStatus, uploadBusy, deviceBusy, onM
 }) {
   const activeModel = models.find((model) => model.is_active);
   return <section className="panel model-management-card" aria-label="模型管理">
-    <div className="panel-heading"><div><p className="section-kicker">推理资源</p><h2>模型选择</h2></div><UploadCommand accept=".pt" title="导入 PT 权重" icon={<Upload size={18} />} onChange={onModelUpload} busy={uploadBusy} /></div>
+    <div className="panel-heading"><div><p className="section-kicker">推理资源</p><h2>模型选择</h2></div></div>
+    <FileDropSurface accept={MODEL_ACCEPT} label="拖放 PT 权重" hint="或点击选择模型文件" busyLabel="正在上传权重" icon={<Upload size={27} aria-hidden="true" />} onFile={onModelUpload} onReject={onUploadReject} busy={uploadBusy} compact />
     <InferenceDeviceSwitch status={deviceStatus} busy={deviceBusy} onSelect={(device) => void onDeviceSelect(device)} />
     <div className="field-label model-select-field"><span>当前模型</span><Select selectedKey={activeModel?.id ?? null} onSelectionChange={(id) => void onActivate(String(id))} isDisabled={!models.length || uploadBusy} placeholder="暂无可选模型" aria-label="当前模型"><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectGroup><SelectLabel>可用模型</SelectLabel>{models.map((model) => <SelectItem key={model.id} id={model.id}>{model.name}</SelectItem>)}</SelectGroup></SelectContent></Select></div>
     {activeModel && <div className="selected-model-summary"><span>当前使用</span><small>{activeModel.source} · {formatTime(activeModel.created_at)}</small></div>}
