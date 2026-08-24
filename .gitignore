@@ -103,6 +103,7 @@ celerybeat.pid
 
 # Environments
 .env
+frontend/.env.production.local
 deploy/cpu-server/.env.production
 .venv
 env/

@@ -68,6 +68,7 @@ const IMAGE_ACCEPT = '.jpg,.jpeg,.png,.bmp,image/jpeg,image/png,image/bmp';
 const VIDEO_ACCEPT = '.mp4,.avi,.mov,.mkv,video/mp4,video/x-msvideo,video/quicktime,video/x-matroska';
 const DATASET_ACCEPT = '.zip,application/zip';
 const MODEL_ACCEPT = '.pt';
+const CUDA_UNAVAILABLE_MESSAGE = import.meta.env.VITE_CUDA_UNAVAILABLE_MESSAGE ?? 'CUDA 运行时未安装或不可用';
 
 const TARGETS = [
   { key: 'person', label: '行人', color: '#7c3aed' },
@@ -1639,7 +1640,7 @@ function DatasetRow({ dataset, selected, onSelect }: { dataset: Dataset; selecte
 
 function InferenceDeviceSwitch({ status, busy, onSelect }: { status: InferenceDeviceStatus | null; busy: boolean; onSelect: (device: 'cpu' | 'cuda') => void }) {
   if (!status) return null;
-  return <div className="model-device-options"><GooeyDeviceSwitch activeId={status.active_device} ariaLabel="推理设备" onSelect={(device) => void onSelect(device as 'cpu' | 'cuda')} items={[{ id: 'cpu', label: 'CPU', icon: <Cpu size={15} aria-hidden="true" />, disabled: busy }, { id: 'cuda', label: 'CUDA', icon: <Zap size={15} aria-hidden="true" />, disabled: busy || !status.cuda_available, title: status.cuda_available ? '使用 CUDA 加速推理' : 'CUDA 运行时未安装或不可用' }]} /></div>;
+  return <div className="model-device-options"><GooeyDeviceSwitch activeId={status.active_device} ariaLabel="推理设备" onSelect={(device) => void onSelect(device as 'cpu' | 'cuda')} items={[{ id: 'cpu', label: 'CPU', icon: <Cpu size={15} aria-hidden="true" />, disabled: busy }, { id: 'cuda', label: 'CUDA', icon: <Zap size={15} aria-hidden="true" />, disabled: busy || !status.cuda_available, title: status.cuda_available ? '使用 CUDA 加速推理' : CUDA_UNAVAILABLE_MESSAGE }]} /></div>;
 }
 
 function ModelManagementCard({ models, deviceStatus, uploadBusy, deviceBusy, onModelUpload, onUploadReject, onActivate, onDeviceSelect, baselineConfig, showBaselineControls, onBaselineChange }: {
