@@ -4,8 +4,8 @@ import {
   Header,
   ListBox,
   ListBoxItem,
+  ListBoxSection,
   Popover,
-  Section,
   Select as SelectPrimitive,
   SelectValue as SelectValuePrimitive,
   type SelectProps,
@@ -38,13 +38,13 @@ export function SelectContent({ className, children }: SimpleProps) {
 }
 
 export function SelectGroup({ className, children }: SimpleProps) {
-  return <Section className={mergeClassName('app-select-group', className)}>{children}</Section>;
+  return <ListBoxSection className={mergeClassName('app-select-group', className)}>{children}</ListBoxSection>;
 }
 
 export function SelectLabel({ className, children }: { className?: string; children: ReactNode }) {
   return <Header className={mergeClassName('app-select-label', className)}>{children}</Header>;
 }
 
-export function SelectItem({ className, children, id }: SimpleProps & { id: string }) {
-  return <ListBoxItem id={id} className={mergeClassName('app-select-item', className)}>{({ isSelected }) => <>{children}<span className="app-select-check" aria-hidden="true">{isSelected && <Check size={15} strokeWidth={2.4} />}</span></>}</ListBoxItem>;
+export function SelectItem({ className, children, id, textValue }: SimpleProps & { id: string; textValue?: string }) {
+  return <ListBoxItem id={id} textValue={textValue} className={mergeClassName('app-select-item', className)}>{({ isSelected }) => <>{children}<span className="app-select-check" aria-hidden="true">{isSelected && <Check size={15} strokeWidth={2.4} />}</span></>}</ListBoxItem>;
 }

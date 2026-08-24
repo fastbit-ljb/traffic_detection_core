@@ -1279,7 +1279,18 @@ function ModelManagementCard({ models, deviceStatus, uploadBusy, deviceBusy, onM
     <div className="panel-heading"><div><p className="section-kicker">推理资源</p><h2>模型选择</h2></div></div>
     <FileDropSurface accept={MODEL_ACCEPT} label="拖放 PT 权重" hint="或点击选择模型文件" busyLabel="正在上传权重" icon={<Upload size={27} aria-hidden="true" />} onFile={onModelUpload} onReject={onUploadReject} busy={uploadBusy} compact />
     <InferenceDeviceSwitch status={deviceStatus} busy={deviceBusy} onSelect={(device) => void onDeviceSelect(device)} />
-    <div className="field-label model-select-field"><span>当前模型</span><Select selectedKey={activeModel?.id ?? null} onSelectionChange={(id) => void onActivate(String(id))} isDisabled={!models.length || uploadBusy} placeholder="暂无可选模型" aria-label="当前模型"><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectGroup><SelectLabel>可用模型</SelectLabel>{models.map((model) => <SelectItem key={model.id} id={model.id}>{model.name}</SelectItem>)}</SelectGroup></SelectContent></Select></div>
+    <div className="field-label model-select-field">
+      <span>当前模型</span>
+      <Select className="model-dropdown" selectedKey={activeModel?.id ?? null} onSelectionChange={(id) => void onActivate(String(id))} isDisabled={!models.length || uploadBusy} placeholder="暂无可选模型" aria-label="当前模型">
+        <SelectTrigger className="model-dropdown-trigger"><SelectValue /></SelectTrigger>
+        <SelectContent className="model-dropdown-popover">
+          <SelectGroup>
+            <SelectLabel>可用模型</SelectLabel>
+            {models.map((model) => <SelectItem className="model-dropdown-item" key={model.id} id={model.id} textValue={model.name}><span className="model-dropdown-option"><strong>{model.name}</strong><small>{model.source === 'official' ? '官方预训练' : model.source === 'upload' ? '自定义权重' : model.source}</small></span></SelectItem>)}
+          </SelectGroup>
+        </SelectContent>
+      </Select>
+    </div>
     {activeModel && <div className="selected-model-summary"><span>当前使用</span><small>{activeModel.source} · {formatTime(activeModel.created_at)}</small></div>}
     {showBaselineControls && <BaselineControls config={baselineConfig} onChange={onBaselineChange} compact />}
   </section>;
