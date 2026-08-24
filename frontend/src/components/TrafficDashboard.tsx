@@ -249,7 +249,10 @@ export function TrafficDashboard() {
   const liveOverlayCanvasRef = useRef<HTMLCanvasElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const captureBusyRef = useRef(false);
+  const cameraActiveRef = useRef(false);
+  const cameraSessionRef = useRef(0);
   const imageUploadBusyRef = useRef(false);
+  const imageRequestRef = useRef(0);
   const [activeView, setActiveView] = useState<ActiveView>('live');
   const [theme, setTheme] = useState<ThemeMode>(() => window.localStorage.getItem('traffic-dashboard-theme') === 'dark' ? 'dark' : 'light');
   const [cameraLive, setCameraLive] = useState(false);
@@ -317,6 +320,14 @@ export function TrafficDashboard() {
   const applyLiveResult = useCallback((result: DetectionResult) => {
     setLiveResult(result);
     setCounts(normalizeCounts(result.class_counts));
+  }, []);
+
+  const clearLiveResult = useCallback(() => {
+    setLiveResult(null);
+    setCounts(emptyCounts());
+    setLiveFlowCounts(emptyFlowCounts());
+    const overlay = liveOverlayCanvasRef.current;
+    overlay?.getContext('2d')?.clearRect(0, 0, overlay.width, overlay.height);
   }, []);
 
   useEffect(() => {
@@ -512,7 +523,6 @@ export function TrafficDashboard() {
     socket.onerror = () => setSocketConnected(false);
     socket.onmessage = (event) => {
       const update = JSON.parse(event.data) as { type: string; data: DetectionResult | Job | ProjectModel };
-      if (update.type === 'vehicle_detection') applyLiveResult(update.data as DetectionResult);
       if (update.type === 'video_progress' || update.type === 'video_completed' || update.type === 'video_failed') {
         setVideoJob(update.data as Job);
       }
@@ -563,7 +573,8 @@ export function TrafficDashboard() {
   const captureCameraFrame = useCallback(async () => {
     const video = videoRef.current;
     const canvas = canvasRef.current;
-    if (!video || !canvas || !video.videoWidth || captureBusyRef.current) return;
+    if (!cameraActiveRef.current || !video || !canvas || !video.videoWidth || captureBusyRef.current) return;
+    const sessionId = cameraSessionRef.current;
     captureBusyRef.current = true;
     try {
       canvas.width = video.videoWidth;
@@ -572,11 +583,14 @@ export function TrafficDashboard() {
       const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.85));
       if (!blob) throw new Error('无法读取摄像头画面');
       const result = await submitImage(blob, 'camera-frame.jpg', 'camera', false, baselineConfig, baselineSession);
+      if (!cameraActiveRef.current || cameraSessionRef.current !== sessionId) return;
       applyLiveResult(result);
       setLiveFlowCounts(normalizeFlowCounts(result.flow_counts));
       setMessage(null);
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : '摄像头检测失败');
+      if (cameraActiveRef.current && cameraSessionRef.current === sessionId) {
+        setMessage(error instanceof Error ? error.message : '摄像头检测失败');
+      }
     } finally {
       captureBusyRef.current = false;
     }
@@ -589,6 +603,10 @@ export function TrafficDashboard() {
   }, [cameraLive, captureCameraFrame]);
 
   const startCamera = async () => {
+    const sessionId = cameraSessionRef.current + 1;
+    cameraSessionRef.current = sessionId;
+    cameraActiveRef.current = false;
+    clearLiveResult();
     try {
       if (!window.isSecureContext || !navigator.mediaDevices?.getUserMedia) {
         throw new Error('摄像头实时检测需要通过 HTTPS 或本机 localhost 访问当前页面');
@@ -607,6 +625,10 @@ export function TrafficDashboard() {
           audio: false,
         });
       }
+      if (cameraSessionRef.current !== sessionId) {
+        stream.getTracks().forEach((track) => track.stop());
+        return;
+      }
       streamRef.current = stream;
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
@@ -614,9 +636,11 @@ export function TrafficDashboard() {
       }
       setBaselineSession((current) => current + 1);
       setLiveFlowCounts(emptyFlowCounts());
+      cameraActiveRef.current = true;
       setCameraLive(true);
       setMessage(null);
     } catch (error) {
+      if (cameraSessionRef.current !== sessionId) return;
       const errorName = error instanceof DOMException ? error.name : '';
       const message = errorName === 'NotFoundError'
         ? '未检测到摄像头，请连接摄像头后重试'
@@ -628,11 +652,34 @@ export function TrafficDashboard() {
   };
 
   const stopCamera = useCallback(() => {
+    cameraSessionRef.current += 1;
+    cameraActiveRef.current = false;
+    captureBusyRef.current = false;
     streamRef.current?.getTracks().forEach((track) => track.stop());
     streamRef.current = null;
     if (videoRef.current) videoRef.current.srcObject = null;
     setCameraLive(false);
+    clearLiveResult();
+    setMessage(null);
+  }, [clearLiveResult]);
+
+  const clearImageResult = useCallback(() => {
+    imageRequestRef.current += 1;
+    imageUploadBusyRef.current = false;
+    setBusyOperation((current) => current === 'image' ? null : current);
+    setImageResult(null);
+    setImageSize(null);
+    setImagePreviewUrl(null);
   }, []);
+
+  const changeActiveView = useCallback((nextView: ActiveView) => {
+    if (nextView === activeView) return;
+    if (activeView === 'live') stopCamera();
+    if (activeView === 'image') clearImageResult();
+    setMessage(null);
+    setActiveView(nextView);
+  }, [activeView, clearImageResult, stopCamera]);
+
 
   useEffect(() => stopCamera, [stopCamera]);
 
@@ -643,6 +690,8 @@ export function TrafficDashboard() {
   const onImageUpload = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file || imageUploadBusyRef.current) return;
+    const requestId = imageRequestRef.current + 1;
+    imageRequestRef.current = requestId;
     imageUploadBusyRef.current = true;
     setImageResult(null);
     setImageSize(null);
@@ -654,14 +703,18 @@ export function TrafficDashboard() {
     setMessage(`已导入 ${file.name}，正在检测`);
     try {
       const result = await submitImage(file, file.name, 'image', true);
+      if (imageRequestRef.current !== requestId) return;
       setImageResult(result);
-      applyLiveResult(result);
       setMessage('图片检测完成，已保存到检测记录');
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : '图片检测失败');
+      if (imageRequestRef.current === requestId) {
+        setMessage(error instanceof Error ? error.message : '图片检测失败');
+      }
     } finally {
-      imageUploadBusyRef.current = false;
-      setBusyOperation(null);
+      if (imageRequestRef.current === requestId) {
+        imageUploadBusyRef.current = false;
+        setBusyOperation(null);
+      }
       event.target.value = '';
     }
   };
@@ -844,7 +897,7 @@ export function TrafficDashboard() {
           <h1>道路车辆与行人检测系统</h1>
         </div>
         <div className="topbar-actions">
-          {QUICK_NAV_ITEMS.map(({ id, label, icon: Icon }) => <button key={id} className={activeView === id ? 'icon-button active-tool' : 'icon-button'} type="button" title={label} aria-label={label} onClick={() => setActiveView(id)}><Icon size={17} aria-hidden="true" /></button>)}
+          {QUICK_NAV_ITEMS.map(({ id, label, icon: Icon }) => <button key={id} className={activeView === id ? 'icon-button active-tool' : 'icon-button'} type="button" title={label} aria-label={label} onClick={() => changeActiveView(id)}><Icon size={17} aria-hidden="true" /></button>)}
           <button className="icon-button theme-toggle" type="button" title={theme === 'light' ? '切换深色主题' : '切换浅色主题'} aria-label={theme === 'light' ? '切换深色主题' : '切换浅色主题'} onClick={toggleTheme}>
             {theme === 'light' ? <Moon size={17} aria-hidden="true" /> : <Sun size={17} aria-hidden="true" />}
           </button>
@@ -863,7 +916,7 @@ export function TrafficDashboard() {
           <PillNav
             items={TOP_NAV_ITEMS}
             activeId={activeView}
-            onSelect={(id) => setActiveView(id as ActiveView)}
+            onSelect={(id) => changeActiveView(id as ActiveView)}
             baseColor={theme === 'dark' ? '#222a31' : '#e9ebef'}
             pillColor={theme === 'dark' ? '#eef3f6' : '#ffffff'}
             pillTextColor={theme === 'dark' ? '#aebbc4' : '#5c6b7a'}
