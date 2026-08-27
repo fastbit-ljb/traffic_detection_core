@@ -64,6 +64,7 @@ const API_BASE_URL = configuredApiBaseUrl
   ? `${/^https?:\/\//i.test(configuredApiBaseUrl) ? configuredApiBaseUrl : `https://${configuredApiBaseUrl}`}`.replace(/\/+$/, '')
   : window.location.origin;
 const AUTH_TOKEN_KEY = 'traffic-auth-token';
+const AUTH_CLICK_SOUND_URL = '/audio/login-click.mp3';
 const IMAGE_ACCEPT = '.jpg,.jpeg,.png,.bmp,image/jpeg,image/png,image/bmp';
 const VIDEO_ACCEPT = '.mp4,.avi,.mov,.mkv,video/mp4,video/x-msvideo,video/quicktime,video/x-matroska';
 const DATASET_ACCEPT = '.zip,application/zip';
@@ -1202,6 +1203,11 @@ function AuthPanel({
   const orangePupilRef = useRef<HTMLElement>(null);
   const yellowPupilRef = useRef<HTMLElement>(null);
   const formReady = form.username.trim().length >= 3 && form.password.length >= 8;
+  const playAuthClickSound = () => {
+    const sound = new Audio(AUTH_CLICK_SOUND_URL);
+    sound.currentTime = 0;
+    void sound.play().catch(() => undefined);
+  };
   const signalState = formReady ? 'green' : form.username.trim() || form.password ? 'yellow' : 'red';
   const signalLabel = signalState === 'green' ? '登录条件已满足' : signalState === 'yellow' ? '正在填写登录信息' : '等待填写登录信息';
 
@@ -1443,7 +1449,7 @@ function AuthPanel({
                 <span className="auth-input-wrapper"><input value={form.password} type={showPassword ? 'text' : 'password'} autoComplete={mode === 'login' ? 'current-password' : 'new-password'} onFocus={() => setFocusedField('password')} onBlur={() => setFocusedField(null)} onChange={(event) => onChange({ ...form, password: event.target.value })} placeholder="输入密码" minLength={8} required /><button className="auth-password-toggle" type="button" aria-label={showPassword ? '隐藏密码' : '显示密码'} title={showPassword ? '隐藏密码' : '显示密码'} onMouseDown={(event) => event.preventDefault()} onClick={togglePassword}>{showPassword ? <EyeOff size={20} aria-hidden="true" /> : <Eye size={20} aria-hidden="true" />}</button></span>
               </label>
               {message && <p className="auth-error" role="alert">{message}</p>}
-              <button className={formReady ? 'auth-submit is-ready' : 'auth-submit'} type="submit" disabled={busy || leaving || !formReady}>
+              <button className={formReady ? 'auth-submit is-ready' : 'auth-submit'} type="submit" disabled={busy || leaving || !formReady} onClick={playAuthClickSound}>
                 {busy ? <Loader2 className="spin" size={17} aria-hidden="true" /> : <><span className="auth-submit-label">{mode === 'login' ? '登录' : '注册'}</span><span className="auth-submit-hover">{mode === 'login' ? '登录' : '注册'}<ArrowRight size={18} aria-hidden="true" /></span></>}
               </button>
             </form>
