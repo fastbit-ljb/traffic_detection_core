@@ -403,59 +403,40 @@ h1, h2, p { margin-top: 0; } h1 { margin-bottom: 0; color: #17212b; font-size: 2
 :root[data-theme='dark'] .baseline-cbx-fill { border-color: #3a4853; }
 :root[data-theme='dark'] .baseline-cbx input:focus-visible ~ .baseline-cbx-fill { box-shadow: 0 0 0 2px rgba(98, 197, 187, .4); }
 
-/* 日夜主题切换开关 */
-@property --dn-thumb-c1 { syntax: "<color>"; inherits: true; initial-value: #fee600; }
-@property --dn-thumb-c2 { syntax: "<color>"; inherits: true; initial-value: #fee600; }
-@property --dn-thumb-c3 { syntax: "<color>"; inherits: true; initial-value: #fee600; }
-@property --dn-thumb-c4 { syntax: "<color>"; inherits: true; initial-value: #fee600; }
-@property --dn-crater-c1 { syntax: "<color>"; inherits: true; initial-value: transparent; }
-@property --dn-crater-c2 { syntax: "<color>"; inherits: true; initial-value: transparent; }
-@property --dn-crater-c3 { syntax: "<color>"; inherits: true; initial-value: transparent; }
-@keyframes daynight-thumb-to-night {
-  0% { --dn-thumb-c1: #fee600; --dn-thumb-c2: #fee600; --dn-thumb-c3: #fee600; --dn-thumb-c4: #fee600; --dn-crater-c1: transparent; --dn-crater-c2: transparent; --dn-crater-c3: transparent; }
-  25% { --dn-thumb-c1: #f4e99b; --dn-thumb-c2: #e6e1a3; --dn-thumb-c3: #d9dca8; --dn-thumb-c4: #d0d9aa; --dn-crater-c1: #d4d9b0; --dn-crater-c2: #d4d9b0; --dn-crater-c3: #d4d9b0; }
-  50% { --dn-thumb-c1: #c4d8b4; --dn-thumb-c2: #c4d8b4; --dn-thumb-c3: #c4d8b4; --dn-thumb-c4: #c4d8b4; --dn-crater-c1: #aab9b6; --dn-crater-c2: #aab9b6; --dn-crater-c3: #aab9b6; }
-  75% { --dn-thumb-c1: #bcd5d9; --dn-thumb-c2: #bcd5d9; --dn-thumb-c3: #bcd5d9; --dn-thumb-c4: #bcd5d9; --dn-crater-c1: #8499aa; --dn-crater-c2: #8c9fad; --dn-crater-c3: #8c9fad; }
-  100% { --dn-thumb-c1: #b5d5e2; --dn-thumb-c2: #b5d5e2; --dn-thumb-c3: #b5d5e2; --dn-thumb-c4: #b5d5e2; --dn-crater-c1: #7186a4; --dn-crater-c2: #7f93ad; --dn-crater-c3: #7f93ad; }
-}
-@keyframes daynight-craters-to-night { from { transform: rotate(0deg); } to { transform: rotate(-40deg); } }
-@keyframes daynight-craters-to-day { from { transform: rotate(-40deg); } to { transform: rotate(0deg); } }
-@keyframes daynight-star-pulse { 0%, 100% { transform: scale(1); opacity: .7; } 50% { transform: scale(.2); opacity: .2; } }
-@keyframes daynight-clouds-drift { 0%, 100% { transform: translateX(-.08em); } 50% { transform: translateX(.12em); } }
-.daynight-toggle { --dn-scale: 13px; --dn-width: 5.625em; --dn-height: 2.5em; --dn-sun: 2.125em; --dn-sun-offset: calc((var(--dn-height) - var(--dn-sun)) / 2); --dn-transition: .8s ease; --dn-duration: 1.4s; --dn-halo: rgba(255, 255, 255, .1); font-size: var(--dn-scale); display: inline-flex; background: none; border: none; padding: 0; }
-.daynight-container { display: block; position: relative; width: var(--dn-width); height: var(--dn-height); overflow: hidden; background: linear-gradient(180deg, #63bce9 0%, #3d8fc3 100%); border: .035em solid rgba(255, 255, 255, .72); border-radius: 100em; cursor: pointer; box-shadow: .06em .06em .125em rgba(0, 0, 0, .25); transition: background var(--dn-transition); }
-.daynight-container::after { content: ""; position: absolute; inset: 0; border-radius: 100em; pointer-events: none; box-shadow: 0 .05em .187em rgba(0, 0, 0, .5) inset; background: linear-gradient(180deg, rgba(255, 255, 255, .2), transparent 42%); }
-.daynight-toggle.dark .daynight-container { background: linear-gradient(180deg, #252936 0%, #0b0d12 100%); }
-.daynight-sun { position: absolute; top: var(--dn-sun-offset); left: 0; width: var(--dn-sun); height: var(--dn-sun); overflow: hidden; border-radius: 50%; background: radial-gradient(circle at 34% 27%, var(--dn-thumb-c1) 0%, color-mix(in srgb, var(--dn-thumb-c1), var(--dn-thumb-c2) 35%) 14%, var(--dn-thumb-c2) 28%, color-mix(in srgb, var(--dn-thumb-c2), var(--dn-thumb-c3) 50%) 45%, var(--dn-thumb-c3) 64%, color-mix(in srgb, var(--dn-thumb-c3), var(--dn-thumb-c4) 50%) 82%, var(--dn-thumb-c4) 100%); transform: translateX(var(--dn-sun-offset)); box-shadow: .05em .125em .125em rgba(0, 0, 0, .25), 0 .05em .125em rgba(0, 0, 0, .25), .05em .05em .05em rgba(254, 255, 239, .61) inset, 0 -.05em .05em #a1872a inset, 0 0 0 .625em var(--dn-halo), 0 0 0 1.25em var(--dn-halo), 0 0 0 1.875em var(--dn-halo); transition: transform var(--dn-transition), --dn-thumb-c1 var(--dn-transition), --dn-thumb-c2 var(--dn-transition), --dn-thumb-c3 var(--dn-transition), --dn-thumb-c4 var(--dn-transition); }
-.daynight-sun::before { content: ""; position: absolute; inset: 0; border-radius: inherit; pointer-events: none; transform-origin: 50% 50%; background: radial-gradient(circle at 38% 61%, var(--dn-crater-c1) 0 15%, transparent 16%), radial-gradient(circle at 69% 31%, var(--dn-crater-c2) 0 8%, transparent 9%), radial-gradient(circle at 73% 73%, var(--dn-crater-c3) 0 11%, transparent 12%); }
-.daynight-toggle.dark .daynight-sun { --dn-thumb-c1: #b5d5e2; --dn-thumb-c2: #b5d5e2; --dn-thumb-c3: #b5d5e2; --dn-thumb-c4: #b5d5e2; --dn-crater-c1: #7186a4; --dn-crater-c2: #7f93ad; --dn-crater-c3: #7f93ad; transform: translateX(calc(var(--dn-width) - var(--dn-sun) - var(--dn-sun-offset))); }
-.daynight-toggle.dark.is-animating .daynight-sun { animation: daynight-thumb-to-night var(--dn-duration) ease both; }
-.daynight-toggle:not(.dark).is-animating .daynight-sun { animation: daynight-thumb-to-night var(--dn-duration) ease both reverse; }
-.daynight-toggle.dark.is-animating .daynight-sun::before { animation: daynight-craters-to-night var(--dn-duration) ease both; }
-.daynight-toggle:not(.dark).is-animating .daynight-sun::before { animation: daynight-craters-to-night var(--dn-duration) ease both reverse; }
-.daynight-toggle.dark .daynight-sun::before { transform: rotate(-40deg); }
-.daynight-toggle:not(.dark) .daynight-sun::before { transform: rotate(0deg); }
-.daynight-toggle:not(.dark):hover .daynight-sun { transform: translateX(calc(var(--dn-sun-offset) + .187em)); }
-.daynight-toggle.dark:hover .daynight-sun { transform: translateX(calc(var(--dn-width) - var(--dn-sun) - var(--dn-sun-offset) - .187em)); }
-.daynight-stars { position: absolute; left: .3em; width: 2.75em; color: #ffffff; transform: translateY(-2em); transition: transform var(--dn-transition); }
-.star-field { position: absolute; inset: 0; display: block; }
-.star { position: absolute; display: block; border-radius: 50%; background: #ffffff; }
-.star--big { width: .34em; height: .34em; clip-path: polygon(50% 0, 61% 39%, 100% 50%, 61% 61%, 50% 100%, 39% 61%, 0 50%, 39% 39%); }
-.star--small { width: .055em; height: .055em; opacity: .85; }
-.star--a { left: .28em; top: .74em; }
-.star--b { left: 1.02em; top: .22em; animation-delay: -.8s; }
-.star--c { left: 1.58em; top: .88em; animation-delay: -1.55s; }
-.star--d { left: 2.28em; top: .38em; animation-delay: -2.2s; }
-.star--e { left: .56em; top: .35em; }
-.star--f { left: .78em; top: 1.18em; }
-.star--g { left: 1.42em; top: .52em; }
-.star--h { left: 2.52em; top: 1.08em; }
-.daynight-toggle.dark .star--big { animation: daynight-star-pulse 2.8s ease-in-out infinite; }
-.daynight-toggle.dark .daynight-stars { transform: translateY(.5em); }
-.daynight-clouds { position: absolute; left: .3em; top: 2em; width: 1.25em; height: 1.25em; border-radius: 50%; background-color: #f3fdff; box-shadow: .937em .312em #f3fdff, 1.437em .375em #f3fdff, 2.187em 0 #f3fdff, 2.937em .312em #f3fdff, 3.625em -.062em #f3fdff, 4.5em -.312em #f3fdff, 4.625em -1.75em 0 .437em #f3fdff, -.312em -.312em #aacadf, .5em -.125em #aacadf, 1.25em -.062em #aacadf, 2em -.312em #aacadf, 2.625em 0 #aacadf, 3.375em -.437em #aacadf, 4em -.625em #aacadf, 4.125em -2.125em 0 .437em #aacadf; transition: transform var(--dn-transition); }
-.daynight-toggle.dark .daynight-clouds { transform: translateY(3em); }
-.daynight-toggle:not(.dark) .daynight-clouds { animation: daynight-clouds-drift 5s ease-in-out infinite; }
+/* 日夜滑块主题开关 */
+.dn-switch { position: relative; display: inline-flex; width: 60px; height: 34px; background: none; border: none; padding: 0; cursor: pointer; }
+.dn-slider { position: absolute; inset: 0; z-index: 0; overflow: hidden; background-color: #2196f3; border-radius: 34px; transition: background-color .4s; }
+.dn-switch[aria-checked='true'] .dn-slider { background-color: #000000; }
+.dn-switch:focus-visible .dn-slider { box-shadow: 0 0 1px 2px #2196f3; }
+.dn-sun-moon { position: absolute; left: 4px; bottom: 4px; width: 26px; height: 26px; background-color: #fee600; border-radius: 50%; transition: transform .4s, background-color .4s; }
+.dn-switch[aria-checked='true'] .dn-sun-moon { transform: translateX(26px); background-color: #ffffff; animation: dn-rotate-sun .6s ease-in-out both; }
+@keyframes dn-rotate-sun { from { transform: translateX(26px) rotate(0deg); } to { transform: translateX(26px) rotate(360deg); } }
+.dn-moon-dot { position: absolute; opacity: 0; background: #b8bfcc; border-radius: 50%; transition: opacity .4s; }
+.dn-switch[aria-checked='true'] .dn-moon-dot { opacity: 1; }
+.dn-moon-dot-1 { left: 10px; top: 3px; width: 6px; height: 6px; z-index: 4; }
+.dn-moon-dot-2 { left: 2px; top: 10px; width: 10px; height: 10px; z-index: 4; }
+.dn-moon-dot-3 { left: 16px; top: 18px; width: 3px; height: 3px; z-index: 4; }
+.dn-light-ray { position: absolute; z-index: 0; background: rgba(255, 255, 255, .1); border-radius: 50%; }
+.dn-ray-1 { left: -8px; top: -8px; width: 43px; height: 43px; }
+.dn-ray-2 { left: -50%; top: -50%; width: 55px; height: 55px; }
+.dn-ray-3 { left: -18px; top: -18px; width: 60px; height: 60px; }
+.dn-cloud-dark { position: absolute; background: #cccccc; border-radius: 50%; animation: dn-cloud-move 6s ease-in-out infinite; animation-delay: 1s; }
+.dn-cloud-light { position: absolute; background: #eeeeee; border-radius: 50%; animation: dn-cloud-move 6s ease-in-out infinite; }
+.dn-cloud-1 { left: 30px; top: 15px; width: 40px; height: 40px; }
+.dn-cloud-2 { left: 44px; top: 10px; width: 20px; height: 20px; }
+.dn-cloud-3 { left: 18px; top: 24px; width: 30px; height: 30px; }
+.dn-cloud-4 { left: 36px; top: 18px; width: 40px; height: 40px; }
+.dn-cloud-5 { left: 48px; top: 14px; width: 20px; height: 20px; }
+.dn-cloud-6 { left: 22px; top: 26px; width: 30px; height: 30px; }
+@keyframes dn-cloud-move { 0% { transform: translateX(0); } 40% { transform: translateX(4px); } 80% { transform: translateX(-4px); } 100% { transform: translateX(0); } }
+.dn-stars { position: absolute; inset: 0; transform: translateY(-32px); opacity: 0; transition: transform .4s, opacity .4s; }
+.dn-switch[aria-checked='true'] .dn-stars { transform: translateY(0); opacity: 1; }
+.dn-star { position: absolute; fill: #ffffff; transition: .4s; animation: dn-star-twinkle 2s ease-in-out infinite; }
+.dn-star-1 { width: 20px; height: 20px; top: 2px; left: 3px; animation-delay: .3s; }
+.dn-star-2 { width: 6px; height: 6px; top: 16px; left: 3px; }
+.dn-star-3 { width: 12px; height: 12px; top: 20px; left: 10px; animation-delay: .6s; }
+.dn-star-4 { width: 18px; height: 18px; top: 0; left: 18px; animation-delay: 1.3s; }
+@keyframes dn-star-twinkle { 0% { transform: scale(1); } 40% { transform: scale(1.2); } 80% { transform: scale(.8); } 100% { transform: scale(1); } }
 @media (prefers-reduced-motion: reduce) {
-  .daynight-toggle, .daynight-container, .daynight-sun, .daynight-stars, .daynight-clouds { transition-duration: .01s !important; }
-  .daynight-toggle .daynight-sun, .daynight-toggle .daynight-sun::before, .daynight-toggle .daynight-clouds, .daynight-toggle .star--big { animation: none !important; }
+  .dn-slider, .dn-sun-moon, .dn-stars, .dn-moon-dot, .dn-star { transition: none !important; animation: none !important; }
 }

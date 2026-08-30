@@ -1808,32 +1808,26 @@ function InferenceDeviceSwitch({ status, busy, onSelect }: { status: InferenceDe
   return <div className="model-device-options"><GooeyDeviceSwitch activeId={status.active_device} ariaLabel="推理设备" onSelect={(device) => void onSelect(device as 'cpu' | 'cuda')} items={[{ id: 'cpu', label: 'CPU', icon: <Cpu size={15} aria-hidden="true" />, disabled: busy }, { id: 'cuda', label: 'CUDA', icon: <Zap size={15} aria-hidden="true" />, disabled: busy || !status.cuda_available, title: status.cuda_available ? '使用 CUDA 加速推理' : CUDA_UNAVAILABLE_MESSAGE }]} /></div>;
 }
 
-const DAYNIGHT_STARS = [
-  'star--big star--a', 'star--big star--b', 'star--big star--c', 'star--big star--d',
-  'star--small star--e', 'star--small star--f', 'star--small star--g', 'star--small star--h',
-];
+const DN_MOON_DOTS = ['dn-moon-dot-1', 'dn-moon-dot-2', 'dn-moon-dot-3'];
+const DN_RAYS = ['dn-ray-1', 'dn-ray-2', 'dn-ray-3'];
+const DN_DARK_CLOUDS = ['dn-cloud-1', 'dn-cloud-2', 'dn-cloud-3'];
+const DN_LIGHT_CLOUDS = ['dn-cloud-4', 'dn-cloud-5', 'dn-cloud-6'];
+const DN_STARS = ['dn-star-1', 'dn-star-2', 'dn-star-3', 'dn-star-4'];
+const DN_STAR_PATH = 'M 0 10 C 10 10, 10 10, 0 10 C 10 10, 10 10, 10 20 C 10 10, 10 10, 20 10 C 10 10, 10 10, 10 0 C 10 10, 10 10, 0 10 Z';
 
 function ThemeToggleDayNight({ dark, onToggle }: { dark: boolean; onToggle: (event: ReactMouseEvent<HTMLButtonElement>) => void }) {
-  const [animating, setAnimating] = useState(false);
-  const timerRef = useRef<number | undefined>(undefined);
-  useEffect(() => () => window.clearTimeout(timerRef.current), []);
-  const handleClick = (event: ReactMouseEvent<HTMLButtonElement>) => {
-    if (animating) return;
-    setAnimating(true);
-    onToggle(event);
-    window.clearTimeout(timerRef.current);
-    timerRef.current = window.setTimeout(() => setAnimating(false), 1500);
-  };
   return (
-    <button type="button" className={`daynight-toggle${dark ? ' dark' : ''}${animating ? ' is-animating' : ''}`} role="switch" aria-checked={dark} aria-label={dark ? '切换浅色主题' : '切换深色主题'} title={dark ? '切换浅色主题' : '切换深色主题'} onClick={handleClick}>
-      <span className="daynight-container">
-        <span className="daynight-clouds" aria-hidden="true" />
-        <span className="daynight-stars" aria-hidden="true">
-          <span className="star-field">
-            {DAYNIGHT_STARS.map((starClass) => <i key={starClass} className={`star ${starClass}`} />)}
-          </span>
+    <button type="button" className="dn-switch" role="switch" aria-checked={dark} aria-label={dark ? '切换浅色主题' : '切换深色主题'} title={dark ? '切换浅色主题' : '切换深色主题'} onClick={(event) => onToggle(event)}>
+      <span className="dn-slider" aria-hidden="true">
+        <span className="dn-sun-moon">
+          {DN_RAYS.map((rayClass) => <i key={rayClass} className={`dn-light-ray ${rayClass}`} />)}
+          {DN_MOON_DOTS.map((dotClass) => <i key={dotClass} className={`dn-moon-dot ${dotClass}`} />)}
+          {DN_DARK_CLOUDS.map((cloudClass) => <i key={cloudClass} className={`dn-cloud-dark ${cloudClass}`} />)}
+          {DN_LIGHT_CLOUDS.map((cloudClass) => <i key={cloudClass} className={`dn-cloud-light ${cloudClass}`} />)}
         </span>
-        <span className="daynight-sun" aria-hidden="true" />
+        <span className="dn-stars">
+          {DN_STARS.map((starClass) => <svg key={starClass} className={`dn-star ${starClass}`} viewBox="0 0 20 20"><path d={DN_STAR_PATH} /></svg>)}
+        </span>
       </span>
     </button>
   );
