@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type CSSProperties } from 'react';
+import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react';
 import { Menu, X } from 'lucide-react';
 import { gsap } from 'gsap';
 import './PillNav.css';
@@ -14,103 +14,133 @@ interface PillNavProps {
   activeId: string;
   onSelect: (id: string) => void;
   className?: string;
-  ease?: string;
   baseColor?: string;
   pillColor?: string;
-  hoveredPillTextColor?: string;
   pillTextColor?: string;
+  hoveredPillTextColor?: string;
+  activeTextColor?: string;
 }
 
+const prefersReducedMotion = () =>
+  typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+/** Liquid segmented navigation: rude-mouse-79 look, heavy-dragonfly-92 sliding glider,
+ * goo-filter droplet tail and elastic squash-and-stretch bounce. */
 export function PillNav({
   items,
   activeId,
   onSelect,
   className = '',
-  ease = 'power3.out',
-  baseColor = '#9acfab',
+  baseColor = '#eceef1',
   pillColor = '#ffffff',
-  hoveredPillTextColor = '#ffffff',
-  pillTextColor = '#4d805b',
+  pillTextColor = '#5c6b7a',
+  hoveredPillTextColor = '#111827',
+  activeTextColor = '#111827',
 }: PillNavProps) {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
-  const circleRefs = useRef<Array<HTMLSpanElement | null>>([]);
-  const timelinesRef = useRef<Array<gsap.core.Timeline | undefined>>([]);
-  const activeTweensRef = useRef<Array<gsap.core.Tween | undefined>>([]);
+  const itemsRef = useRef<HTMLDivElement>(null);
+  const tabRefs = useRef<Array<HTMLButtonElement | null>>([]);
+  const labelRefs = useRef<Array<HTMLSpanElement | null>>([]);
+  const gliderRef = useRef<HTMLSpanElement>(null);
+  const tailRef = useRef<HTMLSpanElement>(null);
   const mobileMenuRef = useRef<HTMLDivElement>(null);
+  const gliderStateRef = useRef({ x: 0, width: 0, ready: false });
+  const activeIdRef = useRef(activeId);
+  const firstActiveRenderRef = useRef(true);
+  activeIdRef.current = activeId;
+
+  const positionGlider = useCallback((targetId: string, animate: boolean) => {
+    const glider = gliderRef.current;
+    const tail = tailRef.current;
+    if (!glider || !tail) return;
+    const index = items.findIndex((item) => item.id === targetId);
+    const tab = tabRefs.current[index];
+    if (!tab) return;
+
+    const x = tab.offsetLeft;
+    const width = tab.offsetWidth;
+    const centerX = x + width / 2;
+    const previous = gliderStateRef.current;
+    const shouldAnimate = animate && previous.ready && !prefersReducedMotion();
+
+    if (!shouldAnimate || Math.abs(x - previous.x) < 2) {
+      gsap.killTweensOf([glider, tail]);
+      gsap.set(glider, { x, width, scaleX: 1, scaleY: 1 });
+      gsap.set(tail, { x: centerX, scale: 1 });
+      gliderStateRef.current = { x, width, ready: true };
+      return;
+    }
+
+    const distance = Math.abs(x - previous.x);
+    const stretch = Math.min(0.42, Math.max(0.1, (distance / Math.max(width, 1)) * 0.2));
+    const previousCenter = previous.x + previous.width / 2;
+
+    gsap.killTweensOf([glider, tail]);
+    gsap.set(glider, { width });
+    gsap.timeline()
+      // 液滴拖尾慢半拍，被 goo 滤镜拉成液桥
+      .fromTo(tail, { x: previousCenter, scale: 1 }, { x: centerX, duration: 0.7, ease: 'power2.in' }, 0)
+      .fromTo(tail, { scale: 1.35 }, { scale: 1, duration: 0.65, ease: 'elastic.out(1, 0.45)' }, 0.05)
+      // 主滑块冲过目标再弹回
+      .to(glider, { x, duration: 0.72, ease: 'elastic.out(1, 0.6)' }, 0)
+      // 移动中横向拉长、纵向压扁，落位后弹性恢复
+      .fromTo(glider, { scaleX: 1 + stretch, scaleY: 1 - stretch * 0.6 }, { scaleX: 1, scaleY: 1, duration: 0.85, ease: 'elastic.out(1, 0.32)' }, 0.08);
+
+    gliderStateRef.current = { x, width, ready: true };
+  }, [items]);
 
   useEffect(() => {
-    const timelines = timelinesRef.current;
-    const activeTweens = activeTweensRef.current;
-    const layout = () => {
-      circleRefs.current.forEach((circle, index) => {
-        if (!circle?.parentElement) return;
-
-        const pill = circle.parentElement;
-        const { width, height } = pill.getBoundingClientRect();
-        const radius = ((width * width) / 4 + height * height) / (2 * height);
-        const diameter = Math.ceil(2 * radius) + 2;
-        const delta = Math.ceil(radius - Math.sqrt(Math.max(0, radius * radius - (width * width) / 4))) + 1;
-        const originY = diameter - delta;
-        const label = pill.querySelector<HTMLElement>('.pill-label');
-        const hoverLabel = pill.querySelector<HTMLElement>('.pill-label-hover');
-
-        circle.style.width = `${diameter}px`;
-        circle.style.height = `${diameter}px`;
-        circle.style.bottom = `-${delta}px`;
-        gsap.set(circle, { xPercent: -50, scale: 0, transformOrigin: `50% ${originY}px` });
-        if (label) gsap.set(label, { y: 0 });
-        if (hoverLabel) gsap.set(hoverLabel, { y: height + 12, opacity: 0 });
-
-        timelinesRef.current[index]?.kill();
-        const timeline = gsap.timeline({ paused: true });
-        timeline.to(circle, { scale: 1.2, xPercent: -50, duration: 1, ease, overwrite: 'auto' }, 0);
-        if (label) timeline.to(label, { y: -(height + 8), duration: 1, ease, overwrite: 'auto' }, 0);
-        if (hoverLabel) timeline.to(hoverLabel, { y: 0, opacity: 1, duration: 1, ease, overwrite: 'auto' }, 0);
-        timelinesRef.current[index] = timeline;
-      });
-    };
-
+    const layout = () => positionGlider(activeIdRef.current, false);
     layout();
     window.addEventListener('resize', layout);
     document.fonts?.ready.then(layout).catch(() => undefined);
+    return () => window.removeEventListener('resize', layout);
+  }, [positionGlider]);
 
-    return () => {
-      window.removeEventListener('resize', layout);
-      timelines.forEach((timeline) => timeline?.kill());
-      activeTweens.forEach((tween) => tween?.kill());
-    };
-  }, [ease, items]);
+  useEffect(() => {
+    if (firstActiveRenderRef.current) {
+      firstActiveRenderRef.current = false;
+      return;
+    }
+    positionGlider(activeId, true);
+  }, [activeId, positionGlider]);
 
   useEffect(() => {
     const menu = mobileMenuRef.current;
     if (!menu) return;
     if (isMobileMenuOpen) {
       gsap.set(menu, { visibility: 'visible' });
-      gsap.fromTo(menu, { opacity: 0, y: 8 }, { opacity: 1, y: 0, duration: 0.24, ease, overwrite: 'auto' });
+      gsap.fromTo(menu, { opacity: 0, y: 8 }, { opacity: 1, y: 0, duration: 0.24, ease: 'power3.out', overwrite: 'auto' });
       return;
     }
     gsap.to(menu, {
       opacity: 0,
       y: 8,
       duration: 0.18,
-      ease,
+      ease: 'power3.out',
       overwrite: 'auto',
       onComplete: () => gsap.set(menu, { visibility: 'hidden' }),
     });
-  }, [ease, isMobileMenuOpen]);
+  }, [isMobileMenuOpen]);
 
-  const animatePill = (index: number, entering: boolean) => {
-    const timeline = timelinesRef.current[index];
-    if (!timeline) return;
-    activeTweensRef.current[index]?.kill();
-    activeTweensRef.current[index] = timeline.tweenTo(entering ? timeline.duration() : 0, {
-      duration: entering ? 0.3 : 0.2,
-      ease,
-      overwrite: 'auto',
-    });
+  const squishLabel = (index: number, strong: boolean) => {
+    const label = labelRefs.current[index];
+    if (!label || prefersReducedMotion()) return;
+    gsap.killTweensOf(label);
+    gsap.timeline()
+      .to(label, { scaleX: strong ? 1.12 : 1.07, scaleY: strong ? 0.84 : 0.9, duration: 0.14, ease: 'power2.out' })
+      .to(label, { scaleX: 1, scaleY: 1, duration: 0.6, ease: 'elastic.out(1, 0.32)' });
   };
 
-  const selectItem = (id: string) => {
+  const releaseLabel = (index: number) => {
+    const label = labelRefs.current[index];
+    if (!label || prefersReducedMotion()) return;
+    gsap.killTweensOf(label);
+    gsap.to(label, { scaleX: 1, scaleY: 1, duration: 0.35, ease: 'power2.out' });
+  };
+
+  const selectItem = (id: string, index: number) => {
+    squishLabel(index, true);
     onSelect(id);
     setIsMobileMenuOpen(false);
   };
@@ -118,25 +148,38 @@ export function PillNav({
   const cssVars = {
     '--base': baseColor,
     '--pill-bg': pillColor,
-    '--hover-text': hoveredPillTextColor,
     '--pill-text': pillTextColor,
+    '--hover-text': hoveredPillTextColor,
+    '--active-text': activeTextColor,
   } as CSSProperties;
 
   return <div className="pill-nav-container" style={cssVars}>
-    <nav className={`pill-nav ${className}`} aria-label="检测导航">
-      <div className="pill-nav-items desktop-only">
+    <svg className="goo-defs" aria-hidden="true" focusable="false">
+      <defs>
+        <filter id="liquid-nav-goo" colorInterpolationFilters="sRGB">
+          <feGaussianBlur in="SourceGraphic" stdDeviation="5" result="blur" />
+          <feColorMatrix in="blur" mode="matrix" values="1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 24 -11" />
+        </filter>
+      </defs>
+    </svg>
+    <nav className={`liquid-nav ${className}`} aria-label="检测导航">
+      <div className="liquid-nav-items desktop-only" ref={itemsRef}>
+        <span className="liquid-layer" aria-hidden="true">
+          <span className="liquid-glider" ref={gliderRef} />
+          <span className="liquid-tail" ref={tailRef} />
+        </span>
         {items.map((item, index) => <button
           key={item.id}
           type="button"
-          className={`pill${activeId === item.id ? ' is-active' : ''}`}
+          ref={(element) => { tabRefs.current[index] = element; }}
+          className={`liquid-tab${activeId === item.id ? ' is-active' : ''}`}
           aria-label={item.ariaLabel ?? item.label}
           aria-pressed={activeId === item.id}
-          onClick={() => selectItem(item.id)}
-          onMouseEnter={() => animatePill(index, true)}
-          onMouseLeave={() => animatePill(index, false)}
+          onClick={() => selectItem(item.id, index)}
+          onMouseEnter={() => squishLabel(index, false)}
+          onMouseLeave={() => releaseLabel(index)}
         >
-          <span className="hover-circle" aria-hidden="true" ref={(element) => { circleRefs.current[index] = element; }} />
-          <span className="label-stack"><span className="pill-label">{item.label}</span><span className="pill-label-hover" aria-hidden="true">{item.label}</span></span>
+          <span className="liquid-tab-label" ref={(element) => { labelRefs.current[index] = element; }}>{item.label}</span>
         </button>)}
       </div>
       <button className="mobile-menu-button mobile-only" type="button" aria-label={isMobileMenuOpen ? '关闭检测导航' : '打开检测导航'} aria-expanded={isMobileMenuOpen} onClick={() => setIsMobileMenuOpen((open) => !open)}>
@@ -144,7 +187,7 @@ export function PillNav({
       </button>
     </nav>
     <div className="mobile-menu-popover mobile-only" ref={mobileMenuRef}>
-      {items.map((item) => <button key={item.id} type="button" className={`mobile-menu-link${activeId === item.id ? ' is-active' : ''}`} onClick={() => selectItem(item.id)}>{item.label}</button>)}
+      {items.map((item) => <button key={item.id} type="button" className={`mobile-menu-link${activeId === item.id ? ' is-active' : ''}`} onClick={() => selectItem(item.id, items.indexOf(item))}>{item.label}</button>)}
     </div>
   </div>;
 }
