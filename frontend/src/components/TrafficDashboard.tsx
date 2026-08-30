@@ -1085,7 +1085,7 @@ export function TrafficDashboard() {
               </section>
               <div className="live-stat-stack">
                 <MetricsPanel counts={counts} result={liveResult} chartData={chartData} darkMode={theme === 'dark'} />
-                {baselineConfig.enabled && (liveResult || liveFlowSeries.length > 0) && <BaselineFlowPanel series={liveFlowSeries} entryTotal={liveFlowTotals.entry} exitTotal={liveFlowTotals.exit} live />}
+                {baselineConfig.enabled && (liveResult || liveFlowSeries.length > 0) && <BaselineFlowPanel series={liveFlowSeries} entryTotal={liveFlowTotals.entry} exitTotal={liveFlowTotals.exit} darkMode={theme === 'dark'} />}
               </div>
             </div>
           )}
@@ -1130,7 +1130,7 @@ export function TrafficDashboard() {
                   {videoJob ? <VideoJobPanel job={videoJob} url={processedVideoUrl} /> : null}
                 </FileDropSurface>
               </section>
-              <VideoStatusPanel job={videoJob} flowSeries={videoFlowSeries} />
+              <VideoStatusPanel job={videoJob} flowSeries={videoFlowSeries} darkMode={theme === 'dark'} />
             </div>
           )}
 
@@ -1551,19 +1551,22 @@ function MetricsPanel({ counts, result, chartData, darkMode }: { counts: TargetC
   return <section className="panel metrics-panel" aria-label="当前目标统计"><div className="panel-heading"><div><p className="section-kicker">当前帧</p><h2>目标数量</h2></div><span className="frame-total">{result?.total_vehicles ?? 0} 个目标</span></div><div className="stat-strip">{TARGETS.map((target) => <span key={target.key}><small>{target.label}</small><strong>{counts[target.key]}</strong></span>)}</div><div className="chart-area"><Bar data={chartData} options={{ responsive: true, maintainAspectRatio: false, animation: false, plugins: { legend: { display: false }, tooltip: { displayColors: false } }, scales: { x: { grid: { display: false }, border: { display: false }, ticks: { color: chartColor } }, y: { beginAtZero: true, ticks: { precision: 0, color: chartColor }, border: { display: false } } } }} /></div><div className="last-update"><Clock3 size={15} aria-hidden="true" /><span>{result ? `${formatTime(result.detection_timestamp)} · ${(result.processing_time * 1000).toFixed(0)} ms` : '等待检测数据'}</span></div></section>;
 }
 
-const FLOW_MONO = 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace';
 const flowAreaGradient = (context: ScriptableContext<'line'>, rgb: string) => {
   const area = context.chart.chartArea;
   if (!area) return 'transparent';
   const gradient = context.chart.ctx.createLinearGradient(0, area.top, 0, area.bottom);
-  gradient.addColorStop(0, `rgba(${rgb}, .26)`);
+  gradient.addColorStop(0, `rgba(${rgb}, .2)`);
   gradient.addColorStop(1, `rgba(${rgb}, 0)`);
   return gradient;
 };
 
-function BaselineFlowPanel({ series, entryTotal, exitTotal, live = false }: { series: FlowSample[]; entryTotal: number; exitTotal: number; live?: boolean }) {
+function BaselineFlowPanel({ series, entryTotal, exitTotal, darkMode }: { series: FlowSample[]; entryTotal: number; exitTotal: number; darkMode: boolean }) {
   const net = entryTotal - exitTotal;
   const origin = series[0]?.t ?? 0;
+  const inColor = darkMode ? '#62c5bb' : '#0f766e';
+  const outColor = darkMode ? '#e08585' : '#dc2626';
+  const tickColor = darkMode ? '#aebbc4' : '#687786';
+  const gridColor = darkMode ? 'rgba(255, 255, 255, .08)' : '#e5e9ed';
   const rateDelta = useMemo(() => {
     if (series.length < 4) return null;
     const first = series[0];
@@ -1576,20 +1579,20 @@ function BaselineFlowPanel({ series, entryTotal, exitTotal, live = false }: { se
       exit: percent(perMinute(first, middle, 'exit'), perMinute(middle, last, 'exit')),
     };
   }, [series]);
-  const deltaLabel = (delta: number | null | undefined) => (delta === null || delta === undefined ? '采样中' : `${delta >= 0 ? '+' : ''}${delta}% vs 前半段`);
+  const deltaLabel = (delta: number | null | undefined) => (delta === null || delta === undefined ? '采样中' : `较前半段 ${delta >= 0 ? '+' : ''}${delta}%`);
   const flowChartData: ChartData<'line', number[], string> = {
     labels: series.map((sample) => formatFlowClock(sample.t - origin)),
     datasets: [
-      { label: 'In', data: series.map((sample) => sample.entry), borderColor: '#c9f04d', borderWidth: 2, tension: .45, fill: true, pointRadius: 0, pointHoverRadius: 4, pointHoverBorderWidth: 0, pointHoverBackgroundColor: '#c9f04d', backgroundColor: (context) => flowAreaGradient(context, '201, 240, 77') },
-      { label: 'Out', data: series.map((sample) => sample.exit), borderColor: '#4fd6e8', borderWidth: 2, tension: .45, fill: true, pointRadius: 0, pointHoverRadius: 4, pointHoverBorderWidth: 0, pointHoverBackgroundColor: '#4fd6e8', backgroundColor: (context) => flowAreaGradient(context, '79, 214, 232') },
+      { label: '进', data: series.map((sample) => sample.entry), borderColor: inColor, borderWidth: 2, tension: .45, fill: true, pointRadius: 0, pointHoverRadius: 4, pointHoverBorderWidth: 0, pointHoverBackgroundColor: inColor, backgroundColor: (context) => flowAreaGradient(context, darkMode ? '98, 197, 187' : '15, 118, 110') },
+      { label: '出', data: series.map((sample) => sample.exit), borderColor: outColor, borderWidth: 2, tension: .45, fill: true, pointRadius: 0, pointHoverRadius: 4, pointHoverBorderWidth: 0, pointHoverBackgroundColor: outColor, backgroundColor: (context) => flowAreaGradient(context, darkMode ? '224, 133, 133' : '220, 38, 38') },
     ],
   };
-  return <section className="baseline-flow-panel" aria-label="进出流量监控">
-    <header className="bf-header"><span>BASELINE FLOW · 进出流量</span><span className={live ? 'bf-live-tag' : 'bf-live-tag idle'}><i aria-hidden="true" />{live ? 'MONITOR' : 'REPORT'}</span></header>
+  return <section className="panel baseline-flow-panel" aria-label="进出流量">
+    <header className="panel-heading"><div><p className="section-kicker">跨线流量</p><h2>进出流量</h2></div><span className="frame-total">入 {entryTotal} · 出 {exitTotal}</span></header>
     <div className="bf-stats">
-      <div className="bf-stat"><small>IN / 进</small><strong>{entryTotal}<em>veh</em></strong><span>{deltaLabel(rateDelta?.entry)}</span></div>
-      <div className="bf-stat out"><small>OUT / 出</small><strong>{exitTotal}<em>veh</em></strong><span>{deltaLabel(rateDelta?.exit)}</span></div>
-      <div className="bf-stat net"><small>NET</small><strong>{net >= 0 ? '+' : ''}{net}</strong><span>{net > 0 ? 'crossing baseline' : net < 0 ? 'leaving baseline' : 'at baseline'}</span></div>
+      <div className="bf-stat"><small>进 / IN</small><strong>{entryTotal}<em>veh</em></strong><span>{deltaLabel(rateDelta?.entry)}</span></div>
+      <div className="bf-stat out"><small>出 / OUT</small><strong>{exitTotal}<em>veh</em></strong><span>{deltaLabel(rateDelta?.exit)}</span></div>
+      <div className="bf-stat net"><small>净 / NET</small><strong>{net >= 0 ? '+' : ''}{net}</strong><span>{net > 0 ? '净流入' : net < 0 ? '净流出' : '进出均衡'}</span></div>
     </div>
     <div className="bf-chart">
       {series.length >= 2
@@ -1606,21 +1609,19 @@ function BaselineFlowPanel({ series, entryTotal, exitTotal, live = false }: { se
               boxWidth: 7,
               boxHeight: 7,
               boxPadding: 4,
-              backgroundColor: '#111a14',
-              borderColor: 'rgba(255, 255, 255, .18)',
+              backgroundColor: darkMode ? '#172129' : '#ffffff',
+              borderColor: darkMode ? '#30404b' : '#dbe1e6',
               borderWidth: 1,
-              cornerRadius: 8,
+              cornerRadius: 4,
               padding: 10,
-              titleColor: '#9db0a3',
-              bodyColor: '#e8f1ea',
-              titleFont: { family: FLOW_MONO, size: 11 },
-              bodyFont: { family: FLOW_MONO, size: 12 },
-              callbacks: { label: (item: TooltipItem<'line'>) => ` ${item.dataset.label}  ${item.parsed.y}` },
+              titleColor: darkMode ? '#aebbc4' : '#647381',
+              bodyColor: darkMode ? '#edf3f6' : '#1f2937',
+              callbacks: { label: (item: TooltipItem<'line'>) => ` ${item.dataset.label} ${item.parsed.y} veh` },
             },
           },
           scales: {
-            x: { grid: { display: false }, border: { color: 'rgba(255, 255, 255, .16)' }, ticks: { color: '#5d6f64', font: { family: FLOW_MONO, size: 10 }, maxTicksLimit: 9, maxRotation: 0 } },
-            y: { beginAtZero: true, grid: { color: 'rgba(255, 255, 255, .07)' }, border: { display: false }, ticks: { color: '#5d6f64', font: { family: FLOW_MONO, size: 10 }, precision: 0, maxTicksLimit: 5 } },
+            x: { grid: { display: false }, border: { color: gridColor }, ticks: { color: tickColor, font: { size: 10 }, maxTicksLimit: 9, maxRotation: 0 } },
+            y: { beginAtZero: true, grid: { color: gridColor }, border: { display: false }, ticks: { color: tickColor, font: { size: 10 }, precision: 0, maxTicksLimit: 5 } },
           },
         }} />
         : <div className="bf-empty">等待跨线数据…</div>}
@@ -1732,11 +1733,11 @@ function VideoJobPanel({ job, url }: { job: Job; url: string | null }) {
   return videoPlayer;
 }
 
-function VideoStatusPanel({ job, flowSeries }: { job: Job | null; flowSeries: FlowSample[] }) {
+function VideoStatusPanel({ job, flowSeries, darkMode }: { job: Job | null; flowSeries: FlowSample[]; darkMode: boolean }) {
   const hasBaseline = job?.payload.baseline_enabled === 'true';
   if (job && hasBaseline) {
     const jobTotals = flowTotals(normalizeFlowCounts(job.result?.flow_counts ?? job.flow_counts));
-    return <BaselineFlowPanel series={flowSeries} entryTotal={jobTotals.entry} exitTotal={jobTotals.exit} />;
+    return <BaselineFlowPanel series={flowSeries} entryTotal={jobTotals.entry} exitTotal={jobTotals.exit} darkMode={darkMode} />;
   }
   return <section className="panel video-status-panel" aria-label="视频任务状态">
     <div className="panel-heading"><div><p className="section-kicker">视频任务</p><h2>检测状态</h2></div></div>
