@@ -51,6 +51,7 @@ import {
   X,
   Zap,
 } from 'lucide-react';
+import { PillNav, type PillNavItem } from './PillNav';
 import {
   Select,
   SelectContent,
@@ -115,8 +116,9 @@ const QUICK_NAV_ITEMS: NavigationItem[] = [
   { id: 'history', label: '检测记录', icon: History },
 ];
 
+const TOP_NAV_ITEMS: PillNavItem[] = DETECTION_NAV_ITEMS.map(({ id, label }) => ({ id, label }));
+
 const RAIL_NAV_SECTIONS = [
-  { label: '检测', items: DETECTION_NAV_ITEMS },
   { label: '管理', items: QUICK_NAV_ITEMS },
 ];
 
@@ -1091,6 +1093,21 @@ export function TrafficDashboard() {
           <button className="text-button auth-logout" type="button" title="退出登录" onClick={handleLogout}><LogOut size={15} aria-hidden="true" />退出</button>
         </div>
       </header>
+
+      <div className="detection-nav-band">
+        <div className="detection-nav-inner">
+          <PillNav
+            items={TOP_NAV_ITEMS}
+            activeId={activeView}
+            onSelect={(id) => changeActiveView(id as ActiveView)}
+            baseColor={theme === 'dark' ? '#222a31' : '#e9ebef'}
+            pillColor={theme === 'dark' ? '#eef3f6' : '#ffffff'}
+            pillTextColor={theme === 'dark' ? '#aebbc4' : '#5c6b7a'}
+            hoveredPillTextColor={theme === 'dark' ? '#edf3f6' : '#111827'}
+            activeTextColor={theme === 'dark' ? '#111827' : '#111827'}
+          />
+        </div>
+      </div>
 
       <div className="application-layout">
         <main className="workspace">
