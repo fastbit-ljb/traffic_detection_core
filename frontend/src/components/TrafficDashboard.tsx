@@ -23,6 +23,8 @@ import {
   Camera,
   Car,
   ChevronRight,
+  ChevronsLeft,
+  ChevronsRight,
   Cpu,
   StopCircle,
   Clock3,
@@ -49,7 +51,6 @@ import {
   X,
   Zap,
 } from 'lucide-react';
-import { PillNav, type PillNavItem } from './PillNav';
 import {
   Select,
   SelectContent,
@@ -114,7 +115,10 @@ const QUICK_NAV_ITEMS: NavigationItem[] = [
   { id: 'history', label: '检测记录', icon: History },
 ];
 
-const TOP_NAV_ITEMS: PillNavItem[] = DETECTION_NAV_ITEMS.map(({ id, label }) => ({ id, label }));
+const RAIL_NAV_SECTIONS = [
+  { label: '检测', items: DETECTION_NAV_ITEMS },
+  { label: '管理', items: QUICK_NAV_ITEMS },
+];
 
 interface DetectionResult {
   total_vehicles: number;
@@ -302,6 +306,8 @@ export function TrafficDashboard() {
   const imageUploadBusyRef = useRef(false);
   const imageRequestRef = useRef(0);
   const [activeView, setActiveView] = useState<ActiveView>('live');
+  const [railCollapsed, setRailCollapsed] = useState(() => window.localStorage.getItem('traffic-side-rail') !== 'expanded');
+  const [resourcesOpen, setResourcesOpen] = useState(false);
   const [theme, setTheme] = useState<ThemeMode>(() => window.localStorage.getItem('traffic-dashboard-theme') === 'dark' ? 'dark' : 'light');
   const [cameraLive, setCameraLive] = useState(false);
   const [socketConnected, setSocketConnected] = useState(false);
@@ -809,6 +815,13 @@ export function TrafficDashboard() {
     setVideoJob(null);
   }, []);
 
+  const toggleRail = useCallback(() => {
+    setRailCollapsed((current) => {
+      window.localStorage.setItem('traffic-side-rail', current ? 'expanded' : 'collapsed');
+      return !current;
+    });
+  }, []);
+
   const changeActiveView = useCallback((nextView: ActiveView) => {
     if (nextView === activeView) return;
     if (activeView === 'live') stopCamera();
@@ -1030,13 +1043,40 @@ export function TrafficDashboard() {
 
   return (
     <div className="app-shell app-shell--entering">
+      <aside className={railCollapsed ? 'side-rail collapsed' : 'side-rail'}>
+        <div className="side-rail-brand" aria-hidden="true"><Car size={19} /></div>
+        <nav className="side-rail-nav" aria-label="主导航">
+          {RAIL_NAV_SECTIONS.map((section) => (
+            <div className="side-rail-group" key={section.label}>
+              {!railCollapsed && <p className="side-rail-group-label">{section.label}</p>}
+              {section.items.map(({ id, label, icon: Icon }) => (
+                <button key={id} className={activeView === id ? 'side-rail-item active' : 'side-rail-item'} type="button" title={label} aria-label={label} aria-current={activeView === id ? 'page' : undefined} onClick={() => changeActiveView(id)}>
+                  <Icon size={19} aria-hidden="true" />
+                  {!railCollapsed && <span>{label}</span>}
+                </button>
+              ))}
+            </div>
+          ))}
+          <div className="side-rail-group">
+            {!railCollapsed && <p className="side-rail-group-label">推理资源</p>}
+            <button className={resourcesOpen ? 'side-rail-item active' : 'side-rail-item'} type="button" title="推理资源" aria-label="推理资源" aria-pressed={resourcesOpen} onClick={() => setResourcesOpen((open) => !open)}>
+              <Cpu size={19} aria-hidden="true" />
+              {!railCollapsed && <span>推理资源</span>}
+            </button>
+          </div>
+        </nav>
+        <button className="side-rail-item side-rail-collapse" type="button" title={railCollapsed ? '展开侧边栏' : '收起侧边栏'} aria-label={railCollapsed ? '展开侧边栏' : '收起侧边栏'} onClick={toggleRail}>
+          {railCollapsed ? <ChevronsRight size={18} aria-hidden="true" /> : <ChevronsLeft size={18} aria-hidden="true" />}
+          {!railCollapsed && <span>收起</span>}
+        </button>
+      </aside>
+      <div className="app-main">
       <header className="topbar">
         <div className="topbar-brand">
           <p className="eyebrow">YOLOV8 ROAD OBJECT DETECTION</p>
           <h1>道路车辆与行人检测系统</h1>
         </div>
         <div className="topbar-actions">
-          {QUICK_NAV_ITEMS.map(({ id, label, icon: Icon }) => <button key={id} className={activeView === id ? 'icon-button active-tool' : 'icon-button'} type="button" title={label} aria-label={label} onClick={() => changeActiveView(id)}><Icon size={17} aria-hidden="true" /></button>)}
           <button className="icon-button theme-toggle" type="button" title={theme === 'light' ? '切换深色主题' : '切换浅色主题'} aria-label={theme === 'light' ? '切换深色主题' : '切换浅色主题'} onClick={toggleTheme}>
             {theme === 'light' ? <Moon size={17} aria-hidden="true" /> : <Sun size={17} aria-hidden="true" />}
           </button>
@@ -1051,21 +1091,6 @@ export function TrafficDashboard() {
           <button className="text-button auth-logout" type="button" title="退出登录" onClick={handleLogout}><LogOut size={15} aria-hidden="true" />退出</button>
         </div>
       </header>
-
-      <div className="detection-nav-band">
-        <div className="detection-nav-inner">
-          <PillNav
-            items={TOP_NAV_ITEMS}
-            activeId={activeView}
-            onSelect={(id) => changeActiveView(id as ActiveView)}
-            baseColor={theme === 'dark' ? '#222a31' : '#e9ebef'}
-            pillColor={theme === 'dark' ? '#eef3f6' : '#ffffff'}
-            pillTextColor={theme === 'dark' ? '#aebbc4' : '#5c6b7a'}
-            hoveredPillTextColor={theme === 'dark' ? '#edf3f6' : '#111827'}
-            activeTextColor={theme === 'dark' ? '#111827' : '#111827'}
-          />
-        </div>
-      </div>
 
       <div className="application-layout">
         <main className="workspace">
@@ -1199,22 +1224,32 @@ names: [person, car, bus, truck]`}</pre>
           )}
 
         </main>
-        <aside className="model-side-area">
-          <ModelManagementCard
-            models={models}
-            deviceStatus={deviceStatus}
-            uploadBusy={busyOperation === 'model'}
-            deviceBusy={busyOperation === 'inference-device'}
-            onModelUpload={onModelUpload}
-            onUploadReject={(file) => setMessage(`${file.name} 不是 PT 权重文件`)}
-            onActivate={activateModel}
-            onDeviceSelect={selectInferenceDevice}
-            baselineConfig={baselineConfig}
-            showBaselineControls={activeView === 'live' || activeView === 'video'}
-            onBaselineChange={updateBaseline}
-          />
-        </aside>
       </div>
+      </div>
+      {resourcesOpen && <div className="drawer-backdrop" onClick={() => setResourcesOpen(false)} aria-hidden="true" />}
+      {resourcesOpen && (
+        <aside className="resources-drawer" aria-label="推理资源">
+          <div className="resources-drawer-head">
+            <div><p className="section-kicker">推理资源</p><h2>模型与设备</h2></div>
+            <button className="icon-button" type="button" title="收起面板" aria-label="收起推理资源面板" onClick={() => setResourcesOpen(false)}><X size={17} aria-hidden="true" /></button>
+          </div>
+          <div className="resources-drawer-body">
+            <ModelManagementCard
+              models={models}
+              deviceStatus={deviceStatus}
+              uploadBusy={busyOperation === 'model'}
+              deviceBusy={busyOperation === 'inference-device'}
+              onModelUpload={onModelUpload}
+              onUploadReject={(file) => setMessage(`${file.name} 不是 PT 权重文件`)}
+              onActivate={activateModel}
+              onDeviceSelect={selectInferenceDevice}
+              baselineConfig={baselineConfig}
+              showBaselineControls={activeView === 'live' || activeView === 'video'}
+              onBaselineChange={updateBaseline}
+            />
+          </div>
+        </aside>
+      )}
       {selectedHistoryEntry && <HistoryDetail entry={selectedHistoryEntry} darkMode={theme === 'dark'} onClose={() => setSelectedHistoryEntry(null)} />}
       {pendingHistoryDeletion && <HistoryDeleteDialog entries={pendingHistoryDeletion} busy={deletingHistoryIds.length > 0} error={historyDeletionError} onCancel={() => { setHistoryDeletionError(null); setPendingHistoryDeletion(null); }} onConfirm={() => void confirmHistoryDeletion()} />}
     </div>
