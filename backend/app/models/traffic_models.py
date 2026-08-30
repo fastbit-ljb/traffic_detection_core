@@ -92,6 +92,9 @@ class VehicleDetectionResult(BaseModel):
     class_counts: Dict[VehicleType, int] = Field(
         default_factory=lambda: {target_class: 0 for target_class in VehicleType}
     )
+    unique_counts: Dict[VehicleType, int] = Field(
+        default_factory=lambda: {target_class: 0 for target_class in VehicleType}
+    )
     flow_counts: Dict[str, Dict[VehicleType, int]] = Field(
         default_factory=lambda: {
             "entry": {target_class: 0 for target_class in VehicleType},

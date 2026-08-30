@@ -114,6 +114,18 @@ def test_delete_history_entries_removes_selected_records_in_input_order(tmp_path
     assert [entry["id"] for entry in repository.list_history()] == [retained["id"]]
 
 
+def test_delete_history_entries_deletes_only_records_owned_by_the_active_user(tmp_path):
+    repository = ProjectRepository(tmp_path / "storage")
+    repository.initialize()
+    owned = repository.add_history("image", "owned.jpg", {}, 0, 0.1, None, "base", user_id="user-a")
+    other = repository.add_history("image", "other.jpg", {}, 0, 0.1, None, "base", user_id="user-b")
+
+    deleted_ids = repository.delete_history_entries([owned["id"], other["id"]], user_id="user-a")
+
+    assert deleted_ids == [owned["id"]]
+    assert [entry["id"] for entry in repository.list_history()] == [other["id"]]
+
+
 def test_delete_history_removes_only_managed_media_assets(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     repository = ProjectRepository(tmp_path / "storage")

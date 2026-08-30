@@ -125,6 +125,7 @@ class ProjectRepository:
                 );
                 CREATE TABLE IF NOT EXISTS detection_history (
                     id TEXT PRIMARY KEY,
+                    user_id TEXT,
                     media_type TEXT NOT NULL,
                     source_name TEXT NOT NULL,
                     class_counts_json TEXT NOT NULL,
@@ -137,6 +138,7 @@ class ProjectRepository:
                 );
                 CREATE TABLE IF NOT EXISTS jobs (
                     id TEXT PRIMARY KEY,
+                    user_id TEXT,
                     kind TEXT NOT NULL,
                     status TEXT NOT NULL,
                     progress REAL NOT NULL,
@@ -146,6 +148,13 @@ class ProjectRepository:
                     created_at TEXT NOT NULL,
                     updated_at TEXT NOT NULL
                 );
+                CREATE TABLE IF NOT EXISTS users (
+                    id TEXT PRIMARY KEY,
+                    username TEXT NOT NULL UNIQUE,
+                    password_hash TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    is_active INTEGER NOT NULL DEFAULT 1
+                );
                 """
             )
             history_columns = {
@@ -153,6 +162,21 @@ class ProjectRepository:
             }
             if "original_path" not in history_columns:
                 connection.execute("ALTER TABLE detection_history ADD COLUMN original_path TEXT")
+            if "user_id" not in history_columns:
+                connection.execute("ALTER TABLE detection_history ADD COLUMN user_id TEXT")
+            connection.execute(
+                "CREATE INDEX IF NOT EXISTS idx_detection_history_user_created "
+                "ON detection_history(user_id, created_at DESC)"
+            )
+            job_columns = {
+                row["name"] for row in connection.execute("PRAGMA table_info(jobs)").fetchall()
+            }
+            if "user_id" not in job_columns:
+                connection.execute("ALTER TABLE jobs ADD COLUMN user_id TEXT")
+            connection.execute(
+                "CREATE INDEX IF NOT EXISTS idx_jobs_user_created "
+                "ON jobs(user_id, created_at DESC)"
+            )
             model_columns = {
                 row["name"] for row in connection.execute("PRAGMA table_info(models)").fetchall()
             }
@@ -188,6 +212,40 @@ class ProjectRepository:
         if "is_active" in item:
             item["is_active"] = bool(item["is_active"])
         return item
+
+    def create_user(self, username: str, password_hash: str) -> Optional[Dict[str, Any]]:
+        """Create one account, returning None when the username already exists."""
+        user = {
+            "id": str(uuid.uuid4()),
+            "username": username,
+            "password_hash": password_hash,
+            "created_at": utc_now(),
+            "is_active": True,
+        }
+        try:
+            with self._lock, self._connection() as connection:
+                connection.execute(
+                    "INSERT INTO users (id, username, password_hash, created_at, is_active) "
+                    "VALUES (?, ?, ?, ?, 1)",
+                    (user["id"], user["username"], user["password_hash"], user["created_at"]),
+                )
+        except sqlite3.IntegrityError:
+            return None
+        return user
+
+    def get_user_by_username(self, username: str) -> Optional[Dict[str, Any]]:
+        with self._lock, self._connection() as connection:
+            row = connection.execute(
+                "SELECT * FROM users WHERE username = ? AND is_active = 1", (username,)
+            ).fetchone()
+        return dict(row) if row else None
+
+    def get_user(self, user_id: str) -> Optional[Dict[str, Any]]:
+        with self._lock, self._connection() as connection:
+            row = connection.execute(
+                "SELECT * FROM users WHERE id = ? AND is_active = 1", (user_id,)
+            ).fetchone()
+        return dict(row) if row else None
 
     def add_dataset(self, name: str, path: Path, summary: Dict[str, Any]) -> Dict[str, Any]:
         dataset = {
@@ -297,9 +355,11 @@ class ProjectRepository:
         output_path: Optional[str],
         model_name: Optional[str],
         original_path: Optional[str] = None,
+        user_id: Optional[str] = None,
     ) -> Dict[str, Any]:
         item = {
             "id": str(uuid.uuid4()),
+            "user_id": user_id,
             "media_type": media_type,
             "source_name": source_name,
             "class_counts": class_counts,
@@ -313,22 +373,42 @@ class ProjectRepository:
         with self._lock, self._connection() as connection:
             connection.execute(
                 """INSERT INTO detection_history (
-                    id, media_type, source_name, class_counts_json, total_objects,
+                    id, user_id, media_type, source_name, class_counts_json, total_objects,
                     processing_time, output_path, original_path, model_name, created_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
-                    item["id"], item["media_type"], item["source_name"], json.dumps(item["class_counts"]),
+                    item["id"], item["user_id"], item["media_type"], item["source_name"], json.dumps(item["class_counts"]),
                     item["total_objects"], item["processing_time"], item["output_path"], item["original_path"], item["model_name"], item["created_at"],
                 ),
             )
         return item
 
-    def list_history(self, limit: int = 50) -> List[Dict[str, Any]]:
+    def list_history(self, limit: int = 50, user_id: Optional[str] = None) -> List[Dict[str, Any]]:
+        with self._lock, self._connection() as connection:
+            if user_id is None:
+                rows = connection.execute(
+                    "SELECT * FROM detection_history ORDER BY created_at DESC LIMIT ?", (limit,)
+                ).fetchall()
+            else:
+                rows = connection.execute(
+                    "SELECT * FROM detection_history WHERE user_id = ? "
+                    "ORDER BY created_at DESC LIMIT ?", (user_id, limit)
+                ).fetchall()
+        return [self._as_dict(row) for row in rows]
+
+    def user_owns_media(self, user_id: str, filename: str) -> bool:
+        """Check whether a generated media basename belongs to this account."""
         with self._lock, self._connection() as connection:
             rows = connection.execute(
-                "SELECT * FROM detection_history ORDER BY created_at DESC LIMIT ?", (limit,)
+                "SELECT output_path, original_path FROM detection_history WHERE user_id = ?",
+                (user_id,),
             ).fetchall()
-        return [self._as_dict(row) for row in rows]
+        return any(
+            Path(raw_path).name == filename
+            for row in rows
+            for raw_path in (row["output_path"], row["original_path"])
+            if raw_path
+        )
 
     @staticmethod
     def _remove_history_assets(entry: Dict[str, Any]) -> None:
@@ -347,20 +427,30 @@ class ProjectRepository:
                 # the database record undeletable.
                 continue
 
-    def delete_history(self, history_id: str) -> Optional[Dict[str, Any]]:
+    def delete_history(self, history_id: str, user_id: Optional[str] = None) -> Optional[Dict[str, Any]]:
         """Delete one persisted detection record and return the removed entry."""
         with self._lock, self._connection() as connection:
-            row = connection.execute(
-                "SELECT * FROM detection_history WHERE id = ?", (history_id,)
-            ).fetchone()
+            if user_id is None:
+                row = connection.execute(
+                    "SELECT * FROM detection_history WHERE id = ?", (history_id,)
+                ).fetchone()
+            else:
+                row = connection.execute(
+                    "SELECT * FROM detection_history WHERE id = ? AND user_id = ?", (history_id, user_id)
+                ).fetchone()
             if not row:
                 return None
-            connection.execute("DELETE FROM detection_history WHERE id = ?", (history_id,))
+            if user_id is None:
+                connection.execute("DELETE FROM detection_history WHERE id = ?", (history_id,))
+            else:
+                connection.execute(
+                    "DELETE FROM detection_history WHERE id = ? AND user_id = ?", (history_id, user_id)
+                )
         entry = self._as_dict(row)
         self._remove_history_assets(entry)
         return entry
 
-    def delete_history_entries(self, history_ids: List[str]) -> List[str]:
+    def delete_history_entries(self, history_ids: List[str], user_id: Optional[str] = None) -> List[str]:
         """Delete persisted detection records in one transaction."""
         unique_history_ids = list(dict.fromkeys(history_id for history_id in history_ids if history_id))
         if not unique_history_ids:
@@ -368,24 +458,36 @@ class ProjectRepository:
 
         placeholders = ", ".join("?" for _ in unique_history_ids)
         with self._lock, self._connection() as connection:
-            rows = connection.execute(
-                f"SELECT * FROM detection_history WHERE id IN ({placeholders})", unique_history_ids
-            ).fetchall()
+            query = f"SELECT * FROM detection_history WHERE id IN ({placeholders})"
+            query_params: List[Any] = [*unique_history_ids]
+            if user_id is not None:
+                query += " AND user_id = ?"
+                query_params.append(user_id)
+            rows = connection.execute(query, query_params).fetchall()
             entries_by_id = {row["id"]: self._as_dict(row) for row in rows}
             deleted_ids = set(entries_by_id)
             if deleted_ids:
-                connection.execute(
-                    f"DELETE FROM detection_history WHERE id IN ({placeholders})", unique_history_ids
-                )
+                delete_query = f"DELETE FROM detection_history WHERE id IN ({placeholders})"
+                delete_params: List[Any] = [*unique_history_ids]
+                if user_id is not None:
+                    delete_query += " AND user_id = ?"
+                    delete_params.append(user_id)
+                connection.execute(delete_query, delete_params)
         for history_id in unique_history_ids:
             entry = entries_by_id.get(history_id)
             if entry:
                 self._remove_history_assets(entry)
         return [history_id for history_id in unique_history_ids if history_id in deleted_ids]
 
-    def create_job(self, kind: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+    def create_job(
+        self,
+        kind: str,
+        payload: Dict[str, Any],
+        user_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
         job = {
             "id": str(uuid.uuid4()),
+            "user_id": user_id,
             "kind": kind,
             "status": "queued",
             "progress": 0.0,
@@ -397,9 +499,10 @@ class ProjectRepository:
         }
         with self._lock, self._connection() as connection:
             connection.execute(
-                "INSERT INTO jobs VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "INSERT INTO jobs (id, user_id, kind, status, progress, message, payload_json, result_json, created_at, updated_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
-                    job["id"], job["kind"], job["status"], job["progress"], job["message"],
+                    job["id"], job["user_id"], job["kind"], job["status"], job["progress"], job["message"],
                     json.dumps(job["payload"]), None, job["created_at"], job["updated_at"],
                 ),
             )
@@ -429,9 +532,14 @@ class ProjectRepository:
             )
         return self.get_job(job_id)
 
-    def get_job(self, job_id: str) -> Optional[Dict[str, Any]]:
+    def get_job(self, job_id: str, user_id: Optional[str] = None) -> Optional[Dict[str, Any]]:
         with self._lock, self._connection() as connection:
-            row = connection.execute("SELECT * FROM jobs WHERE id = ?", (job_id,)).fetchone()
+            if user_id is None:
+                row = connection.execute("SELECT * FROM jobs WHERE id = ?", (job_id,)).fetchone()
+            else:
+                row = connection.execute(
+                    "SELECT * FROM jobs WHERE id = ? AND user_id = ?", (job_id, user_id)
+                ).fetchone()
         return self._as_dict(row) if row else None
 
     def list_jobs(
@@ -439,6 +547,7 @@ class ProjectRepository:
         kind: Optional[str] = None,
         limit: int = 30,
         active_only: bool = False,
+        user_id: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
         query = "SELECT * FROM jobs"
         conditions: List[str] = []
@@ -446,6 +555,9 @@ class ProjectRepository:
         if kind:
             conditions.append("kind = ?")
             params.append(kind)
+        if user_id is not None:
+            conditions.append("user_id = ?")
+            params.append(user_id)
         if active_only:
             conditions.append("status IN ('queued', 'running')")
         if conditions:
@@ -603,7 +715,13 @@ class TrainingService:
         self.runs_dir = repository.storage_dir / "training_runs"
         self._work_lock = asyncio.Lock()
 
-    def submit(self, dataset: Dict[str, Any], base_model: Dict[str, Any], config: Dict[str, int]) -> Dict[str, Any]:
+    def submit(
+        self,
+        dataset: Dict[str, Any],
+        base_model: Dict[str, Any],
+        config: Dict[str, int],
+        user_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
         job = self.repository.create_job(
             "training",
             {
@@ -613,6 +731,7 @@ class TrainingService:
                 "base_model_name": base_model["name"],
                 "config": config,
             },
+            user_id=user_id,
         )
         asyncio.create_task(self._run(job["id"], dataset, base_model, config))
         return job
@@ -675,7 +794,11 @@ class TrainingService:
         }
 
     def submit_comparison(
-        self, dataset: Dict[str, Any], models: List[Dict[str, Any]], config: Dict[str, int]
+        self,
+        dataset: Dict[str, Any],
+        models: List[Dict[str, Any]],
+        config: Dict[str, int],
+        user_id: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Queue validation of multiple weights against the same held-out split."""
         job = self.repository.create_job(
@@ -687,6 +810,7 @@ class TrainingService:
                 "model_names": [model["name"] for model in models],
                 "config": config,
             },
+            user_id=user_id,
         )
         asyncio.create_task(self._run_comparison(job["id"], dataset, models, config))
         return job
@@ -788,7 +912,7 @@ class TrainingService:
 
 
 ProgressCallback = Callable[[int, int, Dict[str, int], Dict[str, Dict[str, int]]], Awaitable[None]]
-BroadcastCallback = Callable[[Dict[str, Any]], Awaitable[None]]
+BroadcastCallback = Callable[..., Awaitable[None]]
 
 
 class VideoProcessingService:
@@ -812,6 +936,7 @@ class VideoProcessingService:
         source_name: str,
         model_name: str,
         baseline_config: Optional[Dict[str, Any]] = None,
+        user_id: Optional[str] = None,
     ) -> Dict[str, Any]:
         payload = {"source_name": source_name, "model_name": model_name, "baseline_enabled": str(bool(baseline_config)).lower()}
         if baseline_config:
@@ -820,8 +945,8 @@ class VideoProcessingService:
                 "baseline_direction": str(baseline_config.get("direction", "")),
                 "baseline_position": str(baseline_config["position"]),
             })
-        job = self.repository.create_job("video", payload)
-        asyncio.create_task(self._run(job["id"], source_path, source_name, model_name, baseline_config))
+        job = self.repository.create_job("video", payload, user_id=user_id)
+        asyncio.create_task(self._run(job["id"], source_path, source_name, model_name, baseline_config, user_id))
         return job
 
     async def _run(
@@ -831,6 +956,7 @@ class VideoProcessingService:
         source_name: str,
         model_name: str,
         baseline_config: Optional[Dict[str, Any]],
+        user_id: Optional[str],
     ) -> None:
         self.output_dir.mkdir(parents=True, exist_ok=True)
         output_path = self.output_dir / f"{job_id}.mp4"
@@ -846,7 +972,10 @@ class VideoProcessingService:
             job = self.repository.update_job(
                 job_id, status="running", progress=progress, message=f"已处理 {current}/{total} 帧"
             )
-            await self.broadcast({"type": "video_progress", "data": {**(job or {}), "class_counts": counts, "flow_counts": flow_counts}})
+            await self.broadcast(
+                {"type": "video_progress", "data": {**(job or {}), "class_counts": counts, "flow_counts": flow_counts}},
+                user_id=user_id,
+            )
 
         try:
             summary = await self.detector.analyze_video(
@@ -861,6 +990,7 @@ class VideoProcessingService:
                 output_path=str(output_path),
                 model_name=model_name,
                 original_path=None,
+                user_id=user_id,
             )
             completed = self.repository.update_job(
                 job_id,
@@ -869,7 +999,7 @@ class VideoProcessingService:
                 message="视频处理完成",
                 result={**summary, "output_path": str(output_path)},
             )
-            await self.broadcast({"type": "video_completed", "data": completed})
+            await self.broadcast({"type": "video_completed", "data": completed}, user_id=user_id)
         except Exception as error:
             failed = self.repository.update_job(job_id, status="failed", message=str(error), result={"error": str(error)})
-            await self.broadcast({"type": "video_failed", "data": failed})
+            await self.broadcast({"type": "video_failed", "data": failed}, user_id=user_id)

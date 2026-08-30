@@ -1,14 +1,19 @@
-import { useCallback, useEffect, useRef, useState, type ChangeEvent, type CSSProperties, type DragEvent as ReactDragEvent, type FormEvent, type MouseEvent, type MouseEvent as ReactMouseEvent } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type DragEvent as ReactDragEvent, type FormEvent, type MouseEvent as ReactMouseEvent } from 'react';
 import { flushSync } from 'react-dom';
-import { Bar } from 'react-chartjs-2';
+import { Bar, Line } from 'react-chartjs-2';
 import {
   BarElement,
   CategoryScale,
   Chart as ChartJS,
+  Filler,
   Legend,
   LinearScale,
+  LineElement,
+  PointElement,
   Tooltip,
   type ChartData,
+  type ScriptableContext,
+  type TooltipItem,
 } from 'chart.js';
 import {
   ArrowDown,
@@ -16,21 +21,28 @@ import {
   ArrowRight,
   ArrowUp,
   Camera,
+  Car,
   ChevronRight,
+  ChevronsLeft,
+  ChevronsRight,
   Cpu,
   StopCircle,
   Clock3,
   Database,
+  Eye,
+  EyeOff,
   Trash2,
   FileArchive,
   FileImage,
   FolderOpen,
   History,
   Loader2,
+  LogOut,
   PackageOpen,
   Play,
   Radio,
   RefreshCw,
+  Sparkles,
   Sun,
   Moon,
   Upload,
@@ -40,26 +52,24 @@ import {
   Zap,
 } from 'lucide-react';
 import { PillNav, type PillNavItem } from './PillNav';
-import {
-  Select,
-  SelectContent,
-  SelectGroup,
-  SelectItem,
-  SelectLabel,
-  SelectTrigger,
-  SelectValue,
-} from './ui/select';
 import { ElasticSlider } from './ui/ElasticSlider';
 import { GooeyDeviceSwitch } from './ui/GooeyDeviceSwitch';
 
-ChartJS.register(CategoryScale, LinearScale, BarElement, Tooltip, Legend);
+ChartJS.register(CategoryScale, LinearScale, BarElement, LineElement, PointElement, Filler, Tooltip, Legend);
 
 const configuredApiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? import.meta.env.VITE_API_URL;
 const API_BASE_URL = configuredApiBaseUrl
   ? `${/^https?:\/\//i.test(configuredApiBaseUrl) ? configuredApiBaseUrl : `https://${configuredApiBaseUrl}`}`.replace(/\/+$/, '')
-  : import.meta.env.PROD
-    ? window.location.origin
-    : 'http://127.0.0.1:8000';
+  : window.location.origin;
+const AUTH_TOKEN_KEY = 'traffic-auth-token';
+const AUTH_CLICK_SOUND_URL = '/audio/login-click.mp3';
+const AUTH_FAILURE_SOUND_URL = '/audio/login-failed.mp3';
+const playAuthSound = (url: string, volume = 1) => {
+  const sound = new Audio(url);
+  sound.currentTime = 0;
+  sound.volume = volume;
+  void sound.play().catch(() => undefined);
+};
 const IMAGE_ACCEPT = '.jpg,.jpeg,.png,.bmp,image/jpeg,image/png,image/bmp';
 const VIDEO_ACCEPT = '.mp4,.avi,.mov,.mkv,video/mp4,video/x-msvideo,video/quicktime,video/x-matroska';
 const DATASET_ACCEPT = '.zip,application/zip';
@@ -106,9 +116,14 @@ const QUICK_NAV_ITEMS: NavigationItem[] = [
 
 const TOP_NAV_ITEMS: PillNavItem[] = DETECTION_NAV_ITEMS.map(({ id, label }) => ({ id, label }));
 
+const RAIL_NAV_SECTIONS = [
+  { label: '管理', items: QUICK_NAV_ITEMS },
+];
+
 interface DetectionResult {
   total_vehicles: number;
   class_counts: Partial<TargetCounts>;
+  unique_counts?: Partial<TargetCounts>;
   flow_counts?: Partial<FlowCounts>;
   processing_time: number;
   annotated_image_path?: string | null;
@@ -175,6 +190,7 @@ interface Job {
   result?: {
     output_path?: string;
     model?: ProjectModel;
+    class_counts?: Partial<TargetCounts>;
     flow_counts?: Partial<FlowCounts>;
     metrics?: ModelMetrics;
     run_dir?: string;
@@ -183,6 +199,7 @@ interface Job {
     error?: string;
   } | null;
   flow_counts?: Partial<FlowCounts>;
+  class_counts?: Partial<TargetCounts>;
   created_at: string;
 }
 
@@ -207,6 +224,18 @@ interface InferenceDeviceStatus {
   device_name?: string | null;
 }
 
+interface AuthUser {
+  id: string;
+  username: string;
+  created_at: string;
+}
+
+interface AuthResponse {
+  access_token: string;
+  token_type: string;
+  user: AuthUser;
+}
+
 const emptyCounts = (): TargetCounts => ({ person: 0, car: 0, bus: 0, truck: 0 });
 const normalizeCounts = (counts?: Partial<TargetCounts>): TargetCounts => ({ ...emptyCounts(), ...counts });
 const emptyFlowCounts = (): FlowCounts => ({ entry: emptyCounts(), exit: emptyCounts() });
@@ -214,6 +243,22 @@ const normalizeFlowCounts = (counts?: Partial<FlowCounts> | null): FlowCounts =>
   entry: normalizeCounts(counts?.entry),
   exit: normalizeCounts(counts?.exit),
 });
+type FlowSample = { t: number; entry: number; exit: number };
+const MAX_FLOW_SAMPLES = 240;
+const flowTotals = (counts: FlowCounts) => ({
+  entry: TARGETS.reduce((total, target) => total + counts.entry[target.key], 0),
+  exit: TARGETS.reduce((total, target) => total + counts.exit[target.key], 0),
+});
+const appendFlowSample = (series: FlowSample[], entry: number, exit: number, at: number, minGapMs: number) => {
+  const last = series[series.length - 1];
+  if (last && at - last.t < minGapMs) return series;
+  const next = [...series, { t: at, entry, exit }];
+  return next.length > MAX_FLOW_SAMPLES ? next.slice(next.length - MAX_FLOW_SAMPLES) : next;
+};
+const formatFlowClock = (elapsedMs: number) => {
+  const totalSeconds = Math.max(0, Math.round(elapsedMs / 1000));
+  return `${String(Math.floor(totalSeconds / 60)).padStart(2, '0')}:${String(totalSeconds % 60).padStart(2, '0')}`;
+};
 const targetByKey = (key: TargetKey) => TARGETS.find((target) => target.key === key)!;
 
 type ViewTransitionDocument = Document & {
@@ -228,18 +273,23 @@ class ApiRequestError extends Error {
 
 const annotatedImageUrl = (path?: string | null) => {
   const fileName = path?.split(/[\\/]/).pop();
-  return fileName ? `${API_BASE_URL}/static/${fileName}` : null;
+  const token = window.localStorage.getItem(AUTH_TOKEN_KEY);
+  return fileName && token ? `${API_BASE_URL}/api/media/images/${encodeURIComponent(fileName)}?token=${encodeURIComponent(token)}` : null;
 };
 
 const videoUrl = (path?: string | null, version?: string) => {
   const fileName = path?.split(/[\\/]/).pop();
-  return fileName ? `${API_BASE_URL}/videos/${fileName}?v=${encodeURIComponent(version ?? fileName)}` : null;
+  const token = window.localStorage.getItem(AUTH_TOKEN_KEY);
+  return fileName && token ? `${API_BASE_URL}/api/media/videos/${encodeURIComponent(fileName)}?v=${encodeURIComponent(version ?? fileName)}&token=${encodeURIComponent(token)}` : null;
 };
 
 const formatTime = (value?: string) => value ? new Date(value).toLocaleString('zh-CN', { hour12: false }) : '-';
 
 async function api<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(`${API_BASE_URL}${path}`, init);
+  const headers = new Headers(init?.headers);
+  const token = window.localStorage.getItem(AUTH_TOKEN_KEY);
+  if (token && !headers.has('Authorization')) headers.set('Authorization', `Bearer ${token}`);
+  const response = await fetch(`${API_BASE_URL}${path}`, { ...init, headers });
   const payload: { detail?: string } = await response.json().catch(() => ({}));
   if (!response.ok) {
     const detail = response.status === 429 ? '请求过于频繁，请稍后再试' : payload.detail ?? '请求未完成';
@@ -259,12 +309,18 @@ export function TrafficDashboard() {
   const imageUploadBusyRef = useRef(false);
   const imageRequestRef = useRef(0);
   const [activeView, setActiveView] = useState<ActiveView>('live');
+  const [railCollapsed, setRailCollapsed] = useState(() => window.localStorage.getItem('traffic-side-rail') !== 'expanded');
+  const [resourcesOpen, setResourcesOpen] = useState(false);
   const [theme, setTheme] = useState<ThemeMode>(() => window.localStorage.getItem('traffic-dashboard-theme') === 'dark' ? 'dark' : 'light');
   const [cameraLive, setCameraLive] = useState(false);
   const [socketConnected, setSocketConnected] = useState(false);
   const [counts, setCounts] = useState<TargetCounts>(emptyCounts);
   const [liveResult, setLiveResult] = useState<DetectionResult | null>(null);
   const [liveFlowCounts, setLiveFlowCounts] = useState<FlowCounts>(emptyFlowCounts);
+  const [liveFlowSeries, setLiveFlowSeries] = useState<FlowSample[]>([]);
+  const [videoFlowSeries, setVideoFlowSeries] = useState<FlowSample[]>([]);
+  const videoFlowJobRef = useRef<string | null>(null);
+  const videoFlowLastRef = useRef(0);
   const [baselineConfig, setBaselineConfig] = useState<BaselineConfig>({ enabled: false, orientation: 'horizontal', direction: 'down', position: 0.5 });
   const [baselineSession, setBaselineSession] = useState(0);
   const [imageResult, setImageResult] = useState<DetectionResult | null>(null);
@@ -283,6 +339,7 @@ export function TrafficDashboard() {
   const [trainingRuns, setTrainingRuns] = useState<Job[]>([]);
   const [comparisonJobs, setComparisonJobs] = useState<Job[]>([]);
   const [videoJob, setVideoJob] = useState<Job | null>(null);
+  const [videoCounts, setVideoCounts] = useState<TargetCounts>(() => normalizeCounts());
   const [selectedDatasetId, setSelectedDatasetId] = useState('');
   const [selectedBaseModelId, setSelectedBaseModelId] = useState('');
   const [selectedComparisonModelIds, setSelectedComparisonModelIds] = useState<string[]>([]);
@@ -290,13 +347,65 @@ export function TrafficDashboard() {
   const [datasetName, setDatasetName] = useState('');
   const [busyOperation, setBusyOperation] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  const [authReady, setAuthReady] = useState(false);
+  const [authUser, setAuthUser] = useState<AuthUser | null>(null);
+  const [authMode, setAuthMode] = useState<'login' | 'register'>('login');
+  const [authForm, setAuthForm] = useState({ username: '', password: '' });
+  const [authBusy, setAuthBusy] = useState(false);
+  const [authMessage, setAuthMessage] = useState<string | null>(null);
+  const [authTransitioning, setAuthTransitioning] = useState(false);
+  const [entryReveal, setEntryReveal] = useState(false);
+  const finishEntryReveal = useCallback(() => setEntryReveal(false), []);
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
     window.localStorage.setItem('traffic-dashboard-theme', theme);
   }, [theme]);
 
-  const toggleTheme = (event: MouseEvent<HTMLButtonElement>) => {
+  useEffect(() => {
+    const token = window.localStorage.getItem(AUTH_TOKEN_KEY);
+    if (!token) {
+      setAuthReady(true);
+      return;
+    }
+    void api<AuthUser>('/api/auth/me')
+      .then(setAuthUser)
+      .catch(() => window.localStorage.removeItem(AUTH_TOKEN_KEY))
+      .finally(() => setAuthReady(true));
+  }, []);
+
+  const submitAuth = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setAuthBusy(true);
+    setAuthMessage(null);
+    try {
+      const response = await api<AuthResponse>(`/api/auth/${authMode}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(authForm),
+      });
+      window.localStorage.setItem(AUTH_TOKEN_KEY, response.access_token);
+      playAuthSound(AUTH_CLICK_SOUND_URL);
+      const completeAuthentication = () => {
+        setAuthUser(response.user);
+        setAuthForm({ username: '', password: '' });
+        setAuthTransitioning(false);
+      };
+      if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+        completeAuthentication();
+      } else {
+        setEntryReveal(true);
+        setAuthTransitioning(true);
+        window.setTimeout(completeAuthentication, 420);
+      }
+    } catch (error) {
+      setAuthMessage(error instanceof Error ? error.message : '认证失败，请稍后重试');
+    } finally {
+      setAuthBusy(false);
+    }
+  };
+
+  const toggleTheme = (event: ReactMouseEvent<HTMLButtonElement>) => {
     const nextTheme: ThemeMode = theme === 'light' ? 'dark' : 'light';
     const commitTheme = () => {
       document.documentElement.dataset.theme = nextTheme;
@@ -324,13 +433,14 @@ export function TrafficDashboard() {
 
   const applyLiveResult = useCallback((result: DetectionResult) => {
     setLiveResult(result);
-    setCounts(normalizeCounts(result.class_counts));
+    setCounts(normalizeCounts(result.unique_counts ?? result.class_counts));
   }, []);
 
   const clearLiveResult = useCallback(() => {
     setLiveResult(null);
     setCounts(emptyCounts());
     setLiveFlowCounts(emptyFlowCounts());
+    setLiveFlowSeries([]);
     const overlay = liveOverlayCanvasRef.current;
     overlay?.getContext('2d')?.clearRect(0, 0, overlay.width, overlay.height);
   }, []);
@@ -515,14 +625,22 @@ export function TrafficDashboard() {
     setSelectedHistoryIds(selected ? history.map((entry) => entry.id) : []);
   }, [history]);
 
-  useEffect(() => { void refreshResources(); }, [refreshResources]);
+  useEffect(() => {
+    if (authUser) void refreshResources();
+  }, [authUser, refreshResources]);
 
   useEffect(() => {
-    if (activeView === 'history') void refreshHistory();
-  }, [activeView, refreshHistory]);
+    if (authUser && activeView === 'history') void refreshHistory();
+  }, [activeView, authUser, refreshHistory]);
 
   useEffect(() => {
-    const socket = new WebSocket(`${API_BASE_URL.replace(/^http/, 'ws')}/ws/traffic-updates`);
+    if (!authUser) {
+      setSocketConnected(false);
+      return undefined;
+    }
+    const token = window.localStorage.getItem(AUTH_TOKEN_KEY);
+    if (!token) return undefined;
+    const socket = new WebSocket(`${API_BASE_URL.replace(/^http/, 'ws')}/ws/traffic-updates?token=${encodeURIComponent(token)}`);
     socket.onopen = () => setSocketConnected(true);
     socket.onclose = () => setSocketConnected(false);
     socket.onerror = () => setSocketConnected(false);
@@ -533,7 +651,7 @@ export function TrafficDashboard() {
       }
     };
     return () => socket.close();
-  }, [applyLiveResult, refreshResources]);
+  }, [applyLiveResult, authUser, refreshResources]);
 
   useEffect(() => {
     if (!videoJob || !['queued', 'running'].includes(videoJob.status)) return undefined;
@@ -545,6 +663,26 @@ export function TrafficDashboard() {
     }, 1200);
     return () => window.clearInterval(interval);
   }, [videoJob, refreshResources]);
+
+  useEffect(() => {
+    if (!videoJob) return;
+    if (videoFlowJobRef.current !== videoJob.id) {
+      videoFlowJobRef.current = videoJob.id;
+      videoFlowLastRef.current = 0;
+      setVideoFlowSeries([]);
+      setVideoCounts(normalizeCounts());
+    }
+    const jobCounts = videoJob.result?.class_counts ?? videoJob.class_counts;
+    if (jobCounts) setVideoCounts(normalizeCounts(jobCounts));
+    const finished = videoJob.status === 'completed' || videoJob.status === 'failed';
+    if (!finished && videoJob.status !== 'running') return;
+    if (videoJob.flow_counts == null && videoJob.result?.flow_counts == null) return;
+    const now = Date.now();
+    if (!finished && now - videoFlowLastRef.current < 900) return;
+    videoFlowLastRef.current = now;
+    const jobTotals = flowTotals(normalizeFlowCounts(videoJob.result?.flow_counts ?? videoJob.flow_counts));
+    setVideoFlowSeries((series) => appendFlowSample(series, jobTotals.entry, jobTotals.exit, now, 0));
+  }, [videoJob]);
 
   useEffect(() => {
     const interval = window.setInterval(() => {
@@ -572,6 +710,7 @@ export function TrafficDashboard() {
       formData.append('baseline_position', String(baseline.position));
       formData.append('baseline_session', `camera-${baselineSessionId ?? 0}`);
     }
+    formData.append('track_session', source === 'camera' ? `camera-${baselineSessionId ?? 0}` : '');
     return api<DetectionResult>('/api/detect-vehicles', { method: 'POST', body: formData });
   }, []);
 
@@ -590,7 +729,10 @@ export function TrafficDashboard() {
       const result = await submitImage(blob, 'camera-frame.jpg', 'camera', false, baselineConfig, baselineSession);
       if (!cameraActiveRef.current || cameraSessionRef.current !== sessionId) return;
       applyLiveResult(result);
-      setLiveFlowCounts(normalizeFlowCounts(result.flow_counts));
+      const flowCounts = normalizeFlowCounts(result.flow_counts);
+      setLiveFlowCounts(flowCounts);
+      const cameraTotals = flowTotals(flowCounts);
+      setLiveFlowSeries((series) => appendFlowSample(series, cameraTotals.entry, cameraTotals.exit, Date.now(), 400));
       setMessage(null);
     } catch (error) {
       if (cameraActiveRef.current && cameraSessionRef.current === sessionId) {
@@ -641,6 +783,7 @@ export function TrafficDashboard() {
       }
       setBaselineSession((current) => current + 1);
       setLiveFlowCounts(emptyFlowCounts());
+      setLiveFlowSeries([]);
       cameraActiveRef.current = true;
       setCameraLive(true);
       setMessage(null);
@@ -677,14 +820,37 @@ export function TrafficDashboard() {
     setImagePreviewUrl(null);
   }, []);
 
+  const clearVideoJob = useCallback(() => {
+    videoFlowJobRef.current = null;
+    videoFlowLastRef.current = 0;
+    setVideoFlowSeries([]);
+    setVideoCounts(normalizeCounts());
+    setVideoJob(null);
+  }, []);
+
+  const toggleRail = useCallback(() => {
+    setRailCollapsed((current) => {
+      window.localStorage.setItem('traffic-side-rail', current ? 'expanded' : 'collapsed');
+      return !current;
+    });
+  }, []);
+
   const changeActiveView = useCallback((nextView: ActiveView) => {
     if (nextView === activeView) return;
     if (activeView === 'live') stopCamera();
     if (activeView === 'image') clearImageResult();
+    if (activeView === 'video' && videoJob && ['completed', 'failed'].includes(videoJob.status)) clearVideoJob();
     setMessage(null);
     setActiveView(nextView);
-  }, [activeView, clearImageResult, stopCamera]);
+  }, [activeView, clearImageResult, clearVideoJob, stopCamera, videoJob]);
 
+  const handleLogout = useCallback(() => {
+    stopCamera();
+    window.localStorage.removeItem(AUTH_TOKEN_KEY);
+    setAuthUser(null);
+    setHistory([]);
+    setMessage(null);
+  }, [stopCamera]);
 
   useEffect(() => stopCamera, [stopCamera]);
 
@@ -746,6 +912,7 @@ export function TrafficDashboard() {
     setBaselineConfig(nextConfig);
     setBaselineSession((current) => current + 1);
     setLiveFlowCounts(emptyFlowCounts());
+    setLiveFlowSeries([]);
   };
 
   const onDatasetUpload = async (file: File) => {
@@ -881,20 +1048,50 @@ export function TrafficDashboard() {
   // Use the local source image whenever available so the browser can render
   // Chinese labels itself, even while an older backend is still being restarted.
   const imageUrl = imagePreviewUrl ?? annotatedImageUrl(imageResult?.annotated_image_path);
+  const liveFlowTotals = flowTotals(liveFlowCounts);
+  const videoJobTotals = flowTotals(normalizeFlowCounts(videoJob?.result?.flow_counts ?? videoJob?.flow_counts));
   const processedVideoUrl = videoUrl(videoJob?.result?.output_path, videoJob?.id);
 
+  if (!authReady) return <div className="auth-screen"><section className="auth-loading"><p className="eyebrow">YOLOV8 ROAD OBJECT DETECTION</p><h1>正在检查登录状态</h1></section></div>;
+  if (!authUser) return <AuthPanel mode={authMode} form={authForm} busy={authBusy} leaving={authTransitioning} message={authMessage} onModeChange={(mode) => { setAuthMode(mode); setAuthMessage(null); }} onChange={setAuthForm} onSubmit={submitAuth} />;
+
   return (
-    <div className="app-shell">
+    <div className={`app-shell${entryReveal ? '' : ' app-shell--entering'}`}>
+      <EntryReveal open={entryReveal} darkMode={theme === 'dark'} onFinish={finishEntryReveal} />
+      <aside className={railCollapsed ? 'side-rail collapsed' : 'side-rail'}>
+        <div className="side-rail-brand" aria-hidden="true"><Car size={19} /></div>
+        <button className="side-rail-item side-rail-collapse" type="button" title={railCollapsed ? '展开侧边栏' : '收起侧边栏'} aria-label={railCollapsed ? '展开侧边栏' : '收起侧边栏'} onClick={toggleRail}>
+          {railCollapsed ? <ChevronsRight size={18} aria-hidden="true" /> : <ChevronsLeft size={18} aria-hidden="true" />}
+        </button>
+        <nav className="side-rail-nav" aria-label="主导航">
+          {RAIL_NAV_SECTIONS.map((section) => (
+            <div className="side-rail-group" key={section.label}>
+              {!railCollapsed && <p className="side-rail-group-label">{section.label}</p>}
+              {section.items.map(({ id, label, icon: Icon }) => (
+                <button key={id} className={activeView === id ? 'side-rail-item active' : 'side-rail-item'} type="button" title={label} aria-label={label} aria-current={activeView === id ? 'page' : undefined} onClick={() => changeActiveView(id)}>
+                  <Icon size={19} aria-hidden="true" />
+                  {!railCollapsed && <span>{label}</span>}
+                </button>
+              ))}
+            </div>
+          ))}
+          <div className="side-rail-group">
+            {!railCollapsed && <p className="side-rail-group-label">推理资源</p>}
+            <button className={resourcesOpen ? 'side-rail-item active' : 'side-rail-item'} type="button" title="推理资源" aria-label="推理资源" aria-pressed={resourcesOpen} onClick={() => setResourcesOpen((open) => !open)}>
+              <Cpu size={19} aria-hidden="true" />
+              {!railCollapsed && <span>推理资源</span>}
+            </button>
+          </div>
+        </nav>
+      </aside>
+      <div className="app-main">
       <header className="topbar">
         <div className="topbar-brand">
           <p className="eyebrow">YOLOV8 ROAD OBJECT DETECTION</p>
           <h1>道路车辆与行人检测系统</h1>
         </div>
         <div className="topbar-actions">
-          {QUICK_NAV_ITEMS.map(({ id, label, icon: Icon }) => <button key={id} className={activeView === id ? 'icon-button active-tool' : 'icon-button'} type="button" title={label} aria-label={label} onClick={() => changeActiveView(id)}><Icon size={17} aria-hidden="true" /></button>)}
-          <button className="icon-button theme-toggle" type="button" title={theme === 'light' ? '切换深色主题' : '切换浅色主题'} aria-label={theme === 'light' ? '切换深色主题' : '切换浅色主题'} onClick={toggleTheme}>
-            {theme === 'light' ? <Moon size={17} aria-hidden="true" /> : <Sun size={17} aria-hidden="true" />}
-          </button>
+          <ThemeToggleDayNight dark={theme === 'dark'} onToggle={toggleTheme} />
           <button className="icon-button" type="button" title="刷新项目数据" onClick={() => void refreshResources()}>
             <RefreshCw size={17} aria-hidden="true" />
           </button>
@@ -902,6 +1099,8 @@ export function TrafficDashboard() {
             <span className={socketConnected ? 'status-dot online' : 'status-dot'} />
             {socketConnected ? '实时连接' : '连接中断'}
           </div>
+          <span className="auth-user">{authUser.username}</span>
+          <button className="text-button auth-logout" type="button" title="退出登录" onClick={handleLogout}><LogOut size={15} aria-hidden="true" />退出</button>
         </div>
       </header>
 
@@ -946,7 +1145,8 @@ export function TrafficDashboard() {
                 <canvas ref={canvasRef} className="hidden-canvas" />
               </section>
               <div className="live-stat-stack">
-                <MetricsPanel counts={counts} result={liveResult} chartData={chartData} darkMode={theme === 'dark'} flowCounts={baselineConfig.enabled ? liveFlowCounts : undefined} />
+                <MetricsPanel counts={counts} result={liveResult} chartData={chartData} darkMode={theme === 'dark'} kicker="累计检出" total={TARGETS.reduce((sum, target) => sum + counts[target.key], 0)} />
+                <BaselineFlowPanel series={liveFlowSeries} entryTotal={liveFlowTotals.entry} exitTotal={liveFlowTotals.exit} darkMode={theme === 'dark'} />
               </div>
             </div>
           )}
@@ -988,10 +1188,13 @@ export function TrafficDashboard() {
                   busy={busyOperation === 'video'}
                   className="video-drop-surface"
                 >
-                  {videoJob ? <VideoJobPanel job={videoJob} url={processedVideoUrl} /> : null}
+                  {videoJob ? <VideoJobPanel job={videoJob} url={processedVideoUrl} onNewVideo={clearVideoJob} /> : null}
                 </FileDropSurface>
               </section>
-              <VideoStatusPanel job={videoJob} darkMode={theme === 'dark'} />
+              <div className="live-stat-stack">
+                <MetricsPanel counts={videoCounts} chartData={{ ...chartData, datasets: [{ ...chartData.datasets[0], data: TARGETS.map((target) => videoCounts[target.key]) }] }} darkMode={theme === 'dark'} kicker="累计检出" total={TARGETS.reduce((sum, target) => sum + videoCounts[target.key], 0)} footer={videoJob ? videoJob.message : undefined} />
+                <BaselineFlowPanel series={videoFlowSeries} entryTotal={videoJobTotals.entry} exitTotal={videoJobTotals.exit} darkMode={theme === 'dark'} />
+              </div>
             </div>
           )}
 
@@ -1051,26 +1254,335 @@ names: [person, car, bus, truck]`}</pre>
           )}
 
         </main>
-        <aside className="model-side-area">
-          <ModelManagementCard
-            models={models}
-            deviceStatus={deviceStatus}
-            uploadBusy={busyOperation === 'model'}
-            deviceBusy={busyOperation === 'inference-device'}
-            onModelUpload={onModelUpload}
-            onUploadReject={(file) => setMessage(`${file.name} 不是 PT 权重文件`)}
-            onActivate={activateModel}
-            onDeviceSelect={selectInferenceDevice}
-            baselineConfig={baselineConfig}
-            showBaselineControls={activeView === 'live' || activeView === 'video'}
-            onBaselineChange={updateBaseline}
-          />
-        </aside>
       </div>
+      </div>
+      {resourcesOpen && <div className="drawer-backdrop" onClick={() => setResourcesOpen(false)} aria-hidden="true" />}
+      {resourcesOpen && (
+        <aside className="resources-drawer" aria-label="推理资源">
+          <div className="resources-drawer-head">
+            <div><p className="section-kicker">推理资源</p><h2>模型与设备</h2></div>
+            <button className="icon-button" type="button" title="收起面板" aria-label="收起推理资源面板" onClick={() => setResourcesOpen(false)}><X size={17} aria-hidden="true" /></button>
+          </div>
+          <div className="resources-drawer-body">
+            <ModelManagementCard
+              models={models}
+              deviceStatus={deviceStatus}
+              uploadBusy={busyOperation === 'model'}
+              deviceBusy={busyOperation === 'inference-device'}
+              onModelUpload={onModelUpload}
+              onUploadReject={(file) => setMessage(`${file.name} 不是 PT 权重文件`)}
+              onActivate={activateModel}
+              onDeviceSelect={selectInferenceDevice}
+              baselineConfig={baselineConfig}
+              showBaselineControls={activeView === 'live' || activeView === 'video'}
+              onBaselineChange={updateBaseline}
+            />
+          </div>
+        </aside>
+      )}
       {selectedHistoryEntry && <HistoryDetail entry={selectedHistoryEntry} darkMode={theme === 'dark'} onClose={() => setSelectedHistoryEntry(null)} />}
       {pendingHistoryDeletion && <HistoryDeleteDialog entries={pendingHistoryDeletion} busy={deletingHistoryIds.length > 0} error={historyDeletionError} onCancel={() => { setHistoryDeletionError(null); setPendingHistoryDeletion(null); }} onConfirm={() => void confirmHistoryDeletion()} />}
     </div>
   );
+}
+
+function AuthPanel({
+  mode,
+  form,
+  busy,
+  leaving,
+  message,
+  onModeChange,
+  onChange,
+  onSubmit,
+}: {
+  mode: 'login' | 'register';
+  form: { username: string; password: string };
+  busy: boolean;
+  leaving: boolean;
+  message: string | null;
+  onModeChange: (mode: 'login' | 'register') => void;
+  onChange: (form: { username: string; password: string }) => void;
+  onSubmit: (event: FormEvent<HTMLFormElement>) => void;
+}) {
+  const [focusedField, setFocusedField] = useState<'username' | 'password' | null>(null);
+  const [showPassword, setShowPassword] = useState(false);
+  const [pointer, setPointer] = useState({ x: 0, y: 0 });
+  const [isTyping, setIsTyping] = useState(false);
+  const [isLookingAtEachOther, setIsLookingAtEachOther] = useState(false);
+  const [isPurpleBlinking, setIsPurpleBlinking] = useState(false);
+  const [isBlackBlinking, setIsBlackBlinking] = useState(false);
+  const [isPurplePeeking, setIsPurplePeeking] = useState(false);
+  const typingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const peekTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const showPasswordRef = useRef(showPassword);
+  const passwordRef = useRef(form.password);
+  const usernameInputRef = useRef<HTMLInputElement>(null);
+  const purpleRef = useRef<HTMLDivElement>(null);
+  const blackRef = useRef<HTMLDivElement>(null);
+  const orangeRef = useRef<HTMLDivElement>(null);
+  const yellowRef = useRef<HTMLDivElement>(null);
+  const purpleEyeRef = useRef<HTMLElement>(null);
+  const blackEyeRef = useRef<HTMLElement>(null);
+  const orangePupilRef = useRef<HTMLElement>(null);
+  const yellowPupilRef = useRef<HTMLElement>(null);
+  const formReady = form.username.trim().length >= 3 && form.password.length >= 8;
+  useEffect(() => {
+    if (!message) return;
+    playAuthSound(AUTH_FAILURE_SOUND_URL, 0.65);
+  }, [message]);
+  const signalState = formReady ? 'green' : form.username.trim() || form.password ? 'yellow' : 'red';
+  const signalLabel = signalState === 'green' ? '登录条件已满足' : signalState === 'yellow' ? '正在填写登录信息' : '等待填写登录信息';
+
+  useEffect(() => {
+    showPasswordRef.current = showPassword;
+    passwordRef.current = form.password;
+  }, [form.password, showPassword]);
+
+  useEffect(() => {
+    const onMouseMove = (event: globalThis.MouseEvent) => {
+      if (!isTyping && !message) setPointer({ x: event.clientX, y: event.clientY });
+    };
+    document.addEventListener('mousemove', onMouseMove);
+    return () => document.removeEventListener('mousemove', onMouseMove);
+  }, [isTyping, message]);
+
+  useEffect(() => {
+    let purpleTimer: ReturnType<typeof setTimeout>;
+    let blackTimer: ReturnType<typeof setTimeout>;
+    const schedulePurpleBlink = () => {
+      purpleTimer = setTimeout(() => {
+        setIsPurpleBlinking(true);
+        purpleTimer = setTimeout(() => {
+          setIsPurpleBlinking(false);
+          schedulePurpleBlink();
+        }, 150);
+      }, Math.random() * 4000 + 3000);
+    };
+    const scheduleBlackBlink = () => {
+      blackTimer = setTimeout(() => {
+        setIsBlackBlinking(true);
+        blackTimer = setTimeout(() => {
+          setIsBlackBlinking(false);
+          scheduleBlackBlink();
+        }, 150);
+      }, Math.random() * 4000 + 3000);
+    };
+    schedulePurpleBlink();
+    scheduleBlackBlink();
+    return () => {
+      clearTimeout(purpleTimer);
+      clearTimeout(blackTimer);
+    };
+  }, []);
+
+  useEffect(() => () => {
+    if (typingTimerRef.current) clearTimeout(typingTimerRef.current);
+    if (peekTimerRef.current) clearTimeout(peekTimerRef.current);
+  }, []);
+
+  const calcPosition = (element: HTMLElement | null) => {
+    if (!element) return { faceX: 0, faceY: 0, bodySkew: 0 };
+    const rect = element.getBoundingClientRect();
+    const dx = pointer.x - (rect.left + rect.width / 2);
+    const dy = pointer.y - (rect.top + rect.height / 3);
+    return {
+      faceX: Math.max(-15, Math.min(15, dx / 20)),
+      faceY: Math.max(-10, Math.min(10, dy / 30)),
+      bodySkew: Math.max(-6, Math.min(6, -dx / 120)),
+    };
+  };
+
+  const calcPupilOffset = (element: HTMLElement | null, maxDistance: number) => {
+    if (!element) return { x: 0, y: 0 };
+    const rect = element.getBoundingClientRect();
+    const dx = pointer.x - (rect.left + rect.width / 2);
+    const dy = pointer.y - (rect.top + rect.height / 2);
+    const distance = Math.min(Math.hypot(dx, dy), maxDistance);
+    const angle = Math.atan2(dy, dx);
+    return { x: Math.cos(angle) * distance, y: Math.sin(angle) * distance };
+  };
+
+  const startUsernameInteraction = () => {
+    setFocusedField('username');
+    setIsTyping(true);
+    setIsLookingAtEachOther(true);
+    if (typingTimerRef.current) clearTimeout(typingTimerRef.current);
+    typingTimerRef.current = setTimeout(() => setIsLookingAtEachOther(false), 800);
+  };
+
+  const endUsernameInteraction = () => {
+    setFocusedField(null);
+    setIsTyping(false);
+    setIsLookingAtEachOther(false);
+    if (typingTimerRef.current) clearTimeout(typingTimerRef.current);
+  };
+
+  const schedulePurplePeek = () => {
+    if (peekTimerRef.current) clearTimeout(peekTimerRef.current);
+    if (!showPasswordRef.current || !passwordRef.current) return;
+    peekTimerRef.current = setTimeout(() => {
+      if (!showPasswordRef.current || !passwordRef.current) return;
+      setIsPurplePeeking(true);
+      peekTimerRef.current = setTimeout(() => {
+        setIsPurplePeeking(false);
+        schedulePurplePeek();
+      }, 800);
+    }, Math.random() * 3000 + 2000);
+  };
+
+  const togglePassword = () => {
+    setShowPassword((visible) => {
+      const nextVisible = !visible;
+      showPasswordRef.current = nextVisible;
+      if (nextVisible) schedulePurplePeek();
+      else {
+        if (peekTimerRef.current) clearTimeout(peekTimerRef.current);
+        setIsPurplePeeking(false);
+      }
+      return nextVisible;
+    });
+  };
+
+  const switchMode = () => {
+    onModeChange(mode === 'login' ? 'register' : 'login');
+    window.setTimeout(() => usernameInputRef.current?.focus(), 0);
+  };
+
+  const purplePosition = calcPosition(purpleRef.current);
+  const blackPosition = calcPosition(blackRef.current);
+  const orangePosition = calcPosition(orangeRef.current);
+  const yellowPosition = calcPosition(yellowRef.current);
+  const isLoginError = Boolean(message);
+  const isShowingPassword = form.password.length > 0 && showPassword;
+  const isLookingAway = focusedField === 'password' && !showPassword;
+  const purplePupilOffset = calcPupilOffset(purpleEyeRef.current, 5);
+  const blackPupilOffset = calcPupilOffset(blackEyeRef.current, 4);
+  const orangePupilOffset = calcPupilOffset(orangePupilRef.current, 5);
+  const yellowPupilOffset = calcPupilOffset(yellowPupilRef.current, 5);
+
+  const purpleStyle = isShowingPassword
+    ? { transform: 'skewX(0deg)', height: 370 }
+    : isLookingAway
+      ? { transform: 'skewX(-14deg) translateX(-20px)', height: 410 }
+      : isTyping
+        ? { transform: `skewX(${purplePosition.bodySkew - 12}deg) translateX(40px)`, height: 410 }
+        : { transform: `skewX(${purplePosition.bodySkew}deg)`, height: 370 };
+  const blackStyle = isShowingPassword
+    ? { transform: 'skewX(0deg)' }
+    : isLookingAway
+      ? { transform: 'skewX(12deg) translateX(-10px)' }
+      : isLookingAtEachOther
+        ? { transform: `skewX(${blackPosition.bodySkew * 1.5 + 10}deg) translateX(20px)` }
+        : isTyping
+          ? { transform: `skewX(${blackPosition.bodySkew * 1.5}deg)` }
+          : { transform: `skewX(${blackPosition.bodySkew}deg)` };
+
+  const purpleEyes = isLoginError
+    ? { left: 30, top: 55, pupil: { x: -3, y: 4 } }
+    : isLookingAway
+      ? { left: 20, top: 25, pupil: { x: -5, y: -5 } }
+      : isShowingPassword
+        ? { left: 20, top: 35, pupil: isPurplePeeking ? { x: 4, y: 5 } : { x: -4, y: -4 } }
+        : isLookingAtEachOther
+          ? { left: 55, top: 65, pupil: { x: 3, y: 4 } }
+          : { left: 45 + purplePosition.faceX, top: 40 + purplePosition.faceY, pupil: purplePupilOffset };
+  const blackEyes = isLoginError
+    ? { left: 15, top: 40, pupil: { x: -3, y: 4 } }
+    : isLookingAway
+      ? { left: 10, top: 20, pupil: { x: -4, y: -5 } }
+      : isShowingPassword
+        ? { left: 10, top: 28, pupil: { x: -4, y: -4 } }
+        : isLookingAtEachOther
+          ? { left: 32, top: 12, pupil: { x: 0, y: -4 } }
+          : { left: 26 + blackPosition.faceX, top: 32 + blackPosition.faceY, pupil: blackPupilOffset };
+  const orangeEyes = isLoginError
+    ? { left: 60, top: 95, pupil: { x: -3, y: 4 } }
+    : isLookingAway
+      ? { left: 50, top: 75, pupil: { x: -5, y: -5 } }
+      : isShowingPassword
+        ? { left: 50, top: 85, pupil: { x: -5, y: -4 } }
+        : { left: 82 + orangePosition.faceX, top: 90 + orangePosition.faceY, pupil: orangePupilOffset };
+  const yellowEyes = isLoginError
+    ? { left: 35, top: 45, pupil: { x: -3, y: 4 } }
+    : isLookingAway
+      ? { left: 20, top: 30, pupil: { x: -5, y: -5 } }
+      : isShowingPassword
+        ? { left: 20, top: 35, pupil: { x: -5, y: -4 } }
+        : { left: 52 + yellowPosition.faceX, top: 40 + yellowPosition.faceY, pupil: yellowPupilOffset };
+  const yellowMouth = isLoginError
+    ? { left: 30, top: 92, transform: 'rotate(-8deg)' }
+    : isLookingAway
+      ? { left: 15, top: 78, transform: 'rotate(0deg)' }
+      : isShowingPassword
+        ? { left: 10, top: 88, transform: 'rotate(0deg)' }
+        : { left: 40 + yellowPosition.faceX, top: 88 + yellowPosition.faceY, transform: 'rotate(0deg)' };
+  const orangeMouth = isLoginError
+    ? { left: 80 + orangePosition.faceX, top: 130 }
+    : { left: 90, top: 120 };
+
+  return <div className="auth-screen">
+    <div className="auth-stage">
+      <section className={`auth-panel animated-auth-panel auth-panel--${mode} ${message ? 'has-error' : ''} ${leaving ? 'is-leaving' : ''}`} data-focus={focusedField ?? 'idle'} data-showing-password={showPassword ? 'true' : 'false'} aria-label={mode === 'login' ? '用户登录' : '用户注册'}>
+        <div className="animated-auth-visual">
+          <div className="animated-auth-brand"><Sparkles size={20} aria-hidden="true" /><span>TRAFFIC FLOW</span></div>
+          <div className="animated-characters-wrapper">
+            <div className="animated-characters-scene" aria-hidden="true">
+              <div ref={purpleRef} className="animated-character char-purple" style={purpleStyle}>
+                <div className="animated-eyes purple-eyes" style={{ left: purpleEyes.left, top: purpleEyes.top }}><i ref={purpleEyeRef} className="animated-eyeball" style={{ height: isPurpleBlinking ? 2 : 18 }}><b className="animated-pupil" style={{ transform: `translate(${purpleEyes.pupil.x}px, ${purpleEyes.pupil.y}px)` }} /></i><i className="animated-eyeball" style={{ height: isPurpleBlinking ? 2 : 18 }}><b className="animated-pupil" style={{ transform: `translate(${purpleEyes.pupil.x}px, ${purpleEyes.pupil.y}px)` }} /></i></div>
+              </div>
+              <div ref={blackRef} className="animated-character char-black" style={blackStyle}>
+                <div className="animated-eyes black-eyes" style={{ left: blackEyes.left, top: blackEyes.top }}><i ref={blackEyeRef} className="animated-eyeball" style={{ height: isBlackBlinking ? 2 : 16 }}><b className="animated-pupil" style={{ transform: `translate(${blackEyes.pupil.x}px, ${blackEyes.pupil.y}px)` }} /></i><i className="animated-eyeball" style={{ height: isBlackBlinking ? 2 : 16 }}><b className="animated-pupil" style={{ transform: `translate(${blackEyes.pupil.x}px, ${blackEyes.pupil.y}px)` }} /></i></div>
+              </div>
+              <div ref={orangeRef} className="animated-character char-orange" style={{ transform: isShowingPassword ? 'skewX(0deg)' : `skewX(${orangePosition.bodySkew}deg)` }}>
+                <div className="animated-eyes orange-eyes" style={{ left: orangeEyes.left, top: orangeEyes.top }}><b ref={orangePupilRef} className="animated-bare-pupil" style={{ transform: `translate(${orangeEyes.pupil.x}px, ${orangeEyes.pupil.y}px)` }} /><b className="animated-bare-pupil" style={{ transform: `translate(${orangeEyes.pupil.x}px, ${orangeEyes.pupil.y}px)` }} /></div>
+                <i className="animated-orange-mouth" style={orangeMouth} />
+              </div>
+              <div ref={yellowRef} className="animated-character char-yellow" style={{ transform: isShowingPassword ? 'skewX(0deg)' : `skewX(${yellowPosition.bodySkew}deg)` }}>
+                <div className="animated-eyes yellow-eyes" style={{ left: yellowEyes.left, top: yellowEyes.top }}><b ref={yellowPupilRef} className="animated-bare-pupil" style={{ transform: `translate(${yellowEyes.pupil.x}px, ${yellowEyes.pupil.y}px)` }} /><b className="animated-bare-pupil" style={{ transform: `translate(${yellowEyes.pupil.x}px, ${yellowEyes.pupil.y}px)` }} /></div>
+                <i className="animated-yellow-mouth" style={yellowMouth} />
+              </div>
+            </div>
+          </div>
+          <p className="animated-auth-caption">道路目标检测平台</p>
+        </div>
+        <div className="auth-content">
+          <div className="auth-road-scene">
+            <div className="auth-road-surface" aria-hidden="true" />
+            <div className="auth-car" aria-hidden="true"><Car size={40} strokeWidth={1.7} /></div>
+            <div className="auth-crosswalk" aria-hidden="true"><i /><i /><i /><i /><i /><i /><i /></div>
+            <div className="auth-signal" data-signal={signalState} role="status" aria-label={signalLabel}>
+              <i className="auth-signal-lamp auth-signal-lamp--red" />
+              <i className="auth-signal-lamp auth-signal-lamp--yellow" />
+              <i className="auth-signal-lamp auth-signal-lamp--green" />
+            </div>
+          </div>
+          <div className="auth-form-container">
+            <div className="auth-heading">
+              <h1>{mode === 'login' ? '欢迎回来！' : '创建账号'}</h1>
+              <p>{mode === 'login' ? '请输入你的账号和密码' : '填写账号和密码以开始使用'}</p>
+            </div>
+            <form className="auth-form" onSubmit={onSubmit}>
+              <div className="auth-input-field">
+                <input ref={usernameInputRef} id="auth-username-input" value={form.username} autoComplete="username" onFocus={startUsernameInteraction} onBlur={endUsernameInteraction} onChange={(event) => onChange({ ...form, username: event.target.value })} placeholder=" " minLength={3} maxLength={32} required />
+                <label className="auth-float-label" htmlFor="auth-username-input" aria-hidden="true">{'账号'.split('').map((character, index) => <span key={index} style={{ transitionDelay: `${index * 60}ms` }}>{character}</span>)}</label>
+              </div>
+              <div className="auth-input-field">
+                <input id="auth-password-input" value={form.password} type={showPassword ? 'text' : 'password'} autoComplete={mode === 'login' ? 'current-password' : 'new-password'} onFocus={() => setFocusedField('password')} onBlur={() => setFocusedField(null)} onChange={(event) => onChange({ ...form, password: event.target.value })} placeholder=" " minLength={8} required />
+                <label className="auth-float-label" htmlFor="auth-password-input" aria-hidden="true">{'密码'.split('').map((character, index) => <span key={index} style={{ transitionDelay: `${index * 60}ms` }}>{character}</span>)}</label>
+                <button className="auth-password-toggle" type="button" aria-label={showPassword ? '隐藏密码' : '显示密码'} title={showPassword ? '隐藏密码' : '显示密码'} onMouseDown={(event) => event.preventDefault()} onClick={togglePassword}>{showPassword ? <EyeOff size={20} aria-hidden="true" /> : <Eye size={20} aria-hidden="true" />}</button>
+              </div>
+              {message && <p className="auth-error" role="alert">{message}</p>}
+              <button className={formReady ? 'auth-submit is-ready' : 'auth-submit'} type="submit" disabled={busy || leaving || !formReady}>
+                {busy ? <Loader2 className="spin" size={17} aria-hidden="true" /> : <><span className="auth-submit-label">{mode === 'login' ? '登录' : '注册'}</span><span className="auth-submit-hover">{mode === 'login' ? '登录' : '注册'}<ArrowRight size={18} aria-hidden="true" /></span></>}
+              </button>
+            </form>
+            <p className="auth-mode-switch">{mode === 'login' ? '还没有账号？' : '已经有账号？'}<button type="button" onClick={switchMode}>{mode === 'login' ? '注册' : '登录'}</button></p>
+          </div>
+        </div>
+      </section>
+    </div>
+  </div>;
 }
 
 function ChineseAnnotation({ target, imageSize }: { target: DetectedTarget; imageSize: { width: number; height: number } }) {
@@ -1099,7 +1611,7 @@ function BaselineGuide({ config }: { config: BaselineConfig }) {
 
 function BaselineControls({ config, onChange, compact = false }: { config: BaselineConfig; onChange: (config: BaselineConfig) => void; compact?: boolean }) {
   return <div className={compact ? 'baseline-controls model-baseline-controls' : 'baseline-controls'}>
-    <label className="baseline-toggle"><input type="checkbox" checked={config.enabled} onChange={(event) => onChange({ ...config, enabled: event.target.checked })} />启用进出基准线</label>
+    <label className="baseline-toggle"><span className="baseline-cbx"><input type="checkbox" checked={config.enabled} onChange={(event) => onChange({ ...config, enabled: event.target.checked })} /><span className="baseline-cbx-fill" aria-hidden="true" /><svg viewBox="0 0 15 14" aria-hidden="true"><path d="M2 8.36364L6.23077 12L13 2" /></svg></span><span>启用进出基准线</span></label>
     {config.enabled && <div className="baseline-fields">
       <div className="baseline-direction-options" role="group" aria-label="进出方向">{BASELINE_DIRECTIONS.map(({ value, label, orientation, icon: Icon }) => <button key={value} className={config.direction === value ? 'baseline-direction-option selected' : 'baseline-direction-option'} type="button" title={label} aria-label={label} onClick={() => onChange({ ...config, direction: value, orientation })}><Icon size={17} strokeWidth={2.4} aria-hidden="true" /></button>)}</div>
       <label className="baseline-position-field"><span>位置 <output>{Math.round(config.position * 100)}%</output></span><ElasticSlider value={Math.round(config.position * 100)} min={5} max={95} step={1} ariaLabel="基准线位置" onChange={(value) => onChange({ ...config, position: value / 100 })} /></label>
@@ -1107,35 +1619,87 @@ function BaselineControls({ config, onChange, compact = false }: { config: Basel
   </div>;
 }
 
-function MetricsPanel({ counts, result, chartData, darkMode, flowCounts }: { counts: TargetCounts; result: DetectionResult | null; chartData: ChartData<'bar', number[], string>; darkMode: boolean; flowCounts?: FlowCounts }) {
+function MetricsPanel({ counts, result, chartData, darkMode, total, footer, kicker = '当前帧', title = '目标数量' }: { counts: TargetCounts; result?: DetectionResult | null; chartData: ChartData<'bar', number[], string>; darkMode: boolean; total?: number; footer?: string; kicker?: string; title?: string }) {
   const chartColor = darkMode ? '#d9e2e8' : '#53616e';
-  return <section className="panel metrics-panel" aria-label="当前目标统计"><div className="panel-heading"><div><p className="section-kicker">当前帧</p><h2>目标数量</h2></div><span className="frame-total">{result?.total_vehicles ?? 0} 个目标</span></div><div className="stat-strip">{TARGETS.map((target) => <span key={target.key}><small>{target.label}</small><strong>{counts[target.key]}</strong></span>)}</div><div className="chart-area"><Bar data={chartData} options={{ responsive: true, maintainAspectRatio: false, animation: false, plugins: { legend: { display: false }, tooltip: { displayColors: false } }, scales: { x: { grid: { display: false }, border: { display: false }, ticks: { color: chartColor } }, y: { beginAtZero: true, ticks: { precision: 0, color: chartColor }, border: { display: false } } } }} /></div>{flowCounts && <div className="inline-flow-summary" aria-label="进出统计"><div className="flow-strip">{TARGETS.map((target) => <span key={target.key}><b>{target.label}</b><small>入</small><strong>{flowCounts.entry[target.key]}</strong><small>出</small><strong>{flowCounts.exit[target.key]}</strong></span>)}</div></div>}<div className="last-update"><Clock3 size={15} aria-hidden="true" /><span>{result ? `${formatTime(result.detection_timestamp)} · ${(result.processing_time * 1000).toFixed(0)} ms` : '等待检测数据'}</span></div></section>;
+  return <section className="panel metrics-panel" aria-label="当前目标统计"><div className="panel-heading"><div><p className="section-kicker">{kicker}</p><h2>{title}</h2></div><span className="frame-total">{total ?? result?.total_vehicles ?? 0} 个目标</span></div><div className="stat-strip">{TARGETS.map((target) => <span key={target.key}><small>{target.label}</small><strong>{counts[target.key]}</strong></span>)}</div><div className="chart-area"><Bar data={chartData} options={{ responsive: true, maintainAspectRatio: false, animation: false, plugins: { legend: { display: false }, tooltip: { displayColors: false } }, scales: { x: { grid: { display: false }, border: { display: false }, ticks: { color: chartColor } }, y: { beginAtZero: true, ticks: { precision: 0, color: chartColor }, border: { display: false } } } }} /></div><div className="last-update"><Clock3 size={15} aria-hidden="true" /><span>{footer ?? (result ? `${formatTime(result.detection_timestamp)} · ${(result.processing_time * 1000).toFixed(0)} ms` : '等待检测数据')}</span></div></section>;
 }
 
-function FlowMetricsPanel({ flowCounts, embedded = false, darkMode }: { flowCounts: FlowCounts; embedded?: boolean; darkMode: boolean }) {
-  const entryTotal = TARGETS.reduce((total, target) => total + flowCounts.entry[target.key], 0);
-  const exitTotal = TARGETS.reduce((total, target) => total + flowCounts.exit[target.key], 0);
-  const chartColor = darkMode ? '#d9e2e8' : '#53616e';
-  const flowChartData: ChartData<'bar', number[], string> = {
-    labels: TARGETS.map((target) => target.label),
+const flowAreaGradient = (context: ScriptableContext<'line'>, rgb: string) => {
+  const area = context.chart.chartArea;
+  if (!area) return 'transparent';
+  const gradient = context.chart.ctx.createLinearGradient(0, area.top, 0, area.bottom);
+  gradient.addColorStop(0, `rgba(${rgb}, .2)`);
+  gradient.addColorStop(1, `rgba(${rgb}, 0)`);
+  return gradient;
+};
+
+function BaselineFlowPanel({ series, entryTotal, exitTotal, darkMode }: { series: FlowSample[]; entryTotal: number; exitTotal: number; darkMode: boolean }) {
+  const net = entryTotal - exitTotal;
+  const origin = series[0]?.t ?? 0;
+  const inColor = darkMode ? '#62c5bb' : '#0f766e';
+  const outColor = darkMode ? '#e08585' : '#dc2626';
+  const tickColor = darkMode ? '#aebbc4' : '#687786';
+  const gridColor = darkMode ? 'rgba(255, 255, 255, .08)' : '#e5e9ed';
+  const rateDelta = useMemo(() => {
+    if (series.length < 4) return null;
+    const first = series[0];
+    const middle = series[Math.floor(series.length / 2)];
+    const last = series[series.length - 1];
+    const perMinute = (from: FlowSample, to: FlowSample, key: 'entry' | 'exit') => (to[key] - from[key]) / Math.max(1 / 60, (to.t - from.t) / 60000);
+    const percent = (earlier: number, recent: number) => (earlier < 0.5 ? null : Math.round(((recent - earlier) / earlier) * 100));
+    return {
+      entry: percent(perMinute(first, middle, 'entry'), perMinute(middle, last, 'entry')),
+      exit: percent(perMinute(first, middle, 'exit'), perMinute(middle, last, 'exit')),
+    };
+  }, [series]);
+  const deltaLabel = (delta: number | null | undefined) => (delta === null || delta === undefined ? '采样中' : `较前半段 ${delta >= 0 ? '+' : ''}${delta}%`);
+  const flowChartData: ChartData<'line', number[], string> = {
+    labels: series.map((sample) => formatFlowClock(sample.t - origin)),
     datasets: [
-      { label: '入库/入区', data: TARGETS.map((target) => flowCounts.entry[target.key]), backgroundColor: darkMode ? '#21633b' : '#9acfab', borderRadius: 4, barThickness: 20 },
-      { label: '出库/出区', data: TARGETS.map((target) => flowCounts.exit[target.key]), backgroundColor: '#dc2626', borderRadius: 4, barThickness: 20 },
+      { label: '进', data: series.map((sample) => sample.entry), borderColor: inColor, borderWidth: 2, tension: .45, fill: true, pointRadius: 0, pointHoverRadius: 4, pointHoverBorderWidth: 0, pointHoverBackgroundColor: inColor, backgroundColor: (context) => flowAreaGradient(context, darkMode ? '98, 197, 187' : '15, 118, 110') },
+      { label: '出', data: series.map((sample) => sample.exit), borderColor: outColor, borderWidth: 2, tension: .45, fill: true, pointRadius: 0, pointHoverRadius: 4, pointHoverBorderWidth: 0, pointHoverBackgroundColor: outColor, backgroundColor: (context) => flowAreaGradient(context, darkMode ? '224, 133, 133' : '220, 38, 38') },
     ],
   };
-  return (
-    <section className={embedded ? 'flow-panel embedded' : 'panel flow-panel'} aria-label="进出统计">
-      <div className="panel-heading"><div><p className="section-kicker">跨线累计</p><h2>进出统计</h2></div><span className="frame-total">入 {entryTotal} · 出 {exitTotal}</span></div>
-      <div className="flow-strip">{TARGETS.map((target) => <span key={target.key}><b>{target.label}</b><small>入</small><strong>{flowCounts.entry[target.key]}</strong><small>出</small><strong>{flowCounts.exit[target.key]}</strong></span>)}</div>
-      <div className="chart-area"><Bar data={flowChartData} options={{
-        responsive: true,
-        maintainAspectRatio: false,
-        animation: false,
-        plugins: { legend: { position: 'top', labels: { boxWidth: 10, usePointStyle: true, color: chartColor } }, tooltip: { displayColors: true } },
-        scales: { x: { grid: { display: false }, border: { display: false }, ticks: { color: chartColor } }, y: { beginAtZero: true, ticks: { precision: 0, color: chartColor }, border: { display: false } }, },
-      }} /></div>
-    </section>
-  );
+  return <section className="panel baseline-flow-panel" aria-label="进出流量">
+    <header className="panel-heading"><div><p className="section-kicker">跨线流量</p><h2>进出流量</h2></div><span className="frame-total">入 {entryTotal} · 出 {exitTotal}</span></header>
+    <div className="bf-stats">
+      <div className="bf-stat"><small>进 / IN</small><strong>{entryTotal}<em>veh</em></strong><span>{deltaLabel(rateDelta?.entry)}</span></div>
+      <div className="bf-stat out"><small>出 / OUT</small><strong>{exitTotal}<em>veh</em></strong><span>{deltaLabel(rateDelta?.exit)}</span></div>
+      <div className="bf-stat net"><small>净 / NET</small><strong>{net >= 0 ? '+' : ''}{net}</strong><span>{net > 0 ? '净流入' : net < 0 ? '净流出' : '进出均衡'}</span></div>
+    </div>
+    <div className="bf-chart">
+      {series.length >= 2
+        ? <Line data={flowChartData} options={{
+          responsive: true,
+          maintainAspectRatio: false,
+          animation: false,
+          interaction: { mode: 'index', intersect: false },
+          plugins: {
+            legend: { display: false },
+            tooltip: {
+              displayColors: true,
+              usePointStyle: true,
+              boxWidth: 7,
+              boxHeight: 7,
+              boxPadding: 4,
+              backgroundColor: darkMode ? '#172129' : '#ffffff',
+              borderColor: darkMode ? '#30404b' : '#dbe1e6',
+              borderWidth: 1,
+              cornerRadius: 4,
+              padding: 10,
+              titleColor: darkMode ? '#aebbc4' : '#647381',
+              bodyColor: darkMode ? '#edf3f6' : '#1f2937',
+              callbacks: { label: (item: TooltipItem<'line'>) => ` ${item.dataset.label} ${item.parsed.y} veh` },
+            },
+          },
+          scales: {
+            x: { grid: { display: false }, border: { color: gridColor }, ticks: { color: tickColor, font: { size: 10 }, maxTicksLimit: 9, maxRotation: 0 } },
+            y: { beginAtZero: true, grid: { color: gridColor }, border: { display: false }, ticks: { color: tickColor, font: { size: 10 }, precision: 0, maxTicksLimit: 5 } },
+          },
+        }} />
+        : <div className="bf-empty">等待跨线数据…</div>}
+    </div>
+  </section>;
 }
 
 const fileMatchesAccept = (file: File, accept: string) => accept.split(',').some((rawToken) => {
@@ -1204,12 +1768,12 @@ function FileDropSurface({ accept, label, hint, busyLabel, icon, onFile, onRejec
   return <div className={`file-drop-surface${compact ? ' compact' : ''}${dragging ? ' is-dragging' : ''}${children ? ' has-content' : ''}${className ? ` ${className}` : ''}`} aria-busy={busy} onDragEnter={handleDragEnter} onDragOver={handleDragOver} onDragLeave={handleDragLeave} onDrop={handleDrop}>
     <input ref={inputRef} className="file-drop-input" type="file" accept={accept} disabled={busy} onChange={(event) => { const file = event.currentTarget.files?.[0]; event.currentTarget.value = ''; acceptFile(file); }} />
     {children ?? <button className="file-drop-prompt" type="button" onClick={() => inputRef.current?.click()} disabled={busy}>
-      <span className="file-drop-icon">{busy ? <Loader2 className="spin" size={compact ? 26 : 36} aria-hidden="true" /> : icon}</span>
+      <span className="file-drop-icon">{busy ? <HamsterWheel size={compact ? 3.6 : 5.5} /> : icon}</span>
       <span className="file-drop-copy"><strong>{busy ? busyLabel : label}</strong><small>{busy ? '文件正在处理，请稍候' : hint}</small></span>
       {!compact && <span className="file-drop-action">选择文件</span>}
     </button>}
     {dragging && <div className="file-drop-overlay" aria-hidden="true"><UploadCloud size={compact ? 30 : 44} /><strong>{busy ? '当前任务处理中' : '松开即可导入'}</strong><span>{busy ? '完成后可继续添加文件' : label}</span></div>}
-    {busy && children && <div className="file-drop-busy"><Loader2 className="spin" size={24} aria-hidden="true" /><span>{busyLabel}</span></div>}
+    {busy && children && <div className="file-drop-busy"><HamsterWheel size={4} /><span>{busyLabel}</span></div>}
   </div>;
 }
 
@@ -1223,6 +1787,7 @@ function VideoProcessingStage({ job }: { job: Job }) {
   return <div className="video-stage video-processing-stage" aria-busy="true">
     <div className="video-processing-loader">
       <div className="video-processing-header"><span className="video-processing-status"><i aria-hidden="true" /><span>{processing ? '正在分析视频' : '视频任务排队中'}</span></span><strong>{progress}%</strong></div>
+      <NewtonsCradle />
       <div className="video-processing-track"><span className="video-processing-fill" style={{ width: `${progress}%` }}><i aria-hidden="true" /></span></div>
       <div className="video-processing-ticks" aria-hidden="true">{Array.from({ length: 11 }, (_, index) => <i key={index} />)}</div>
       <div className="video-processing-footer"><span>{job.message}</span><span>{processing ? '实时进度' : '等待处理资源'}</span></div>
@@ -1230,25 +1795,20 @@ function VideoProcessingStage({ job }: { job: Job }) {
   </div>;
 }
 
-function VideoJobPanel({ job, url }: { job: Job; url: string | null }) {
+function VideoJobPanel({ job, url, onNewVideo }: { job: Job; url: string | null; onNewVideo?: () => void }) {
   const [playbackError, setPlaybackError] = useState(false);
   const isProcessing = ['queued', 'running'].includes(job.status);
   const videoPlayer = job.status === 'completed' && url && !playbackError
     ? <div className="processed-video-stage"><video key={url} className="processed-video" src={url} controls autoPlay muted playsInline preload="auto" onError={() => setPlaybackError(true)} /></div>
     : isProcessing ? <VideoProcessingStage job={job} /> : <VideoUploadStage label={playbackError ? '处理视频无法在当前浏览器中播放' : job.message} />;
+  const finished = !isProcessing;
 
   useEffect(() => setPlaybackError(false), [url]);
 
-  return videoPlayer;
-}
-
-function VideoStatusPanel({ job, darkMode }: { job: Job | null; darkMode: boolean }) {
-  const hasBaseline = job?.payload.baseline_enabled === 'true';
-  if (job && hasBaseline) return <FlowMetricsPanel flowCounts={normalizeFlowCounts(job.result?.flow_counts ?? job.flow_counts)} darkMode={darkMode} />;
-  return <section className="panel video-status-panel" aria-label="视频任务状态">
-    <div className="panel-heading"><div><p className="section-kicker">视频任务</p><h2>检测状态</h2></div></div>
-    {job ? <div className="video-task-status"><div className="job-status-line"><span className={`job-state ${job.status}`}>{job.status}</span><strong>{job.message}</strong><span>{Math.round(job.progress)}%</span></div><div className="progress-track"><span style={{ width: `${job.progress}%` }} /></div></div> : <EmptyState icon={<Video size={30} />} label="等待选择视频" />}
-  </section>;
+  return <div className="video-job-panel">
+    {videoPlayer}
+    {finished && onNewVideo && <div className="video-result-actions"><button className="text-button" type="button" onClick={onNewVideo}><UploadCloud size={15} aria-hidden="true" />上传新视频</button><span className="video-result-hint">也可以直接拖入新视频替换</span></div>}
+  </div>;
 }
 
 function DatasetRow({ dataset, selected, onSelect }: { dataset: Dataset; selected: boolean; onSelect: () => void }) {
@@ -1259,6 +1819,31 @@ function DatasetRow({ dataset, selected, onSelect }: { dataset: Dataset; selecte
 function InferenceDeviceSwitch({ status, busy, onSelect }: { status: InferenceDeviceStatus | null; busy: boolean; onSelect: (device: 'cpu' | 'cuda') => void }) {
   if (!status) return null;
   return <div className="model-device-options"><GooeyDeviceSwitch activeId={status.active_device} ariaLabel="推理设备" onSelect={(device) => void onSelect(device as 'cpu' | 'cuda')} items={[{ id: 'cpu', label: 'CPU', icon: <Cpu size={15} aria-hidden="true" />, disabled: busy }, { id: 'cuda', label: 'CUDA', icon: <Zap size={15} aria-hidden="true" />, disabled: busy || !status.cuda_available, title: status.cuda_available ? '使用 CUDA 加速推理' : CUDA_UNAVAILABLE_MESSAGE }]} /></div>;
+}
+
+const DN_MOON_DOTS = ['dn-moon-dot-1', 'dn-moon-dot-2', 'dn-moon-dot-3'];
+const DN_RAYS = ['dn-ray-1', 'dn-ray-2', 'dn-ray-3'];
+const DN_DARK_CLOUDS = ['dn-cloud-1', 'dn-cloud-2', 'dn-cloud-3'];
+const DN_LIGHT_CLOUDS = ['dn-cloud-4', 'dn-cloud-5', 'dn-cloud-6'];
+const DN_STARS = ['dn-star-1', 'dn-star-2', 'dn-star-3', 'dn-star-4'];
+const DN_STAR_PATH = 'M 0 10 C 10 10, 10 10, 0 10 C 10 10, 10 10, 10 20 C 10 10, 10 10, 20 10 C 10 10, 10 10, 10 0 C 10 10, 10 10, 0 10 Z';
+
+function ThemeToggleDayNight({ dark, onToggle }: { dark: boolean; onToggle: (event: ReactMouseEvent<HTMLButtonElement>) => void }) {
+  return (
+    <button type="button" className="dn-switch" role="switch" aria-checked={dark} aria-label={dark ? '切换浅色主题' : '切换深色主题'} title={dark ? '切换浅色主题' : '切换深色主题'} onClick={(event) => onToggle(event)}>
+      <span className="dn-slider" aria-hidden="true">
+        <span className="dn-sun-moon">
+          {DN_RAYS.map((rayClass) => <i key={rayClass} className={`dn-light-ray ${rayClass}`} />)}
+          {DN_MOON_DOTS.map((dotClass) => <i key={dotClass} className={`dn-moon-dot ${dotClass}`} />)}
+          {DN_DARK_CLOUDS.map((cloudClass) => <i key={cloudClass} className={`dn-cloud-dark ${cloudClass}`} />)}
+          {DN_LIGHT_CLOUDS.map((cloudClass) => <i key={cloudClass} className={`dn-cloud-light ${cloudClass}`} />)}
+        </span>
+        <span className="dn-stars">
+          {DN_STARS.map((starClass) => <svg key={starClass} className={`dn-star ${starClass}`} viewBox="0 0 20 20"><path d={DN_STAR_PATH} /></svg>)}
+        </span>
+      </span>
+    </button>
+  );
 }
 
 function ModelManagementCard({ models, deviceStatus, uploadBusy, deviceBusy, onModelUpload, onUploadReject, onActivate, onDeviceSelect, baselineConfig, showBaselineControls, onBaselineChange }: {
@@ -1275,21 +1860,17 @@ function ModelManagementCard({ models, deviceStatus, uploadBusy, deviceBusy, onM
   onBaselineChange: (config: BaselineConfig) => void;
 }) {
   const activeModel = models.find((model) => model.is_active);
+  const orderedModels = useMemo(() => [...models].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()), [models]);
   return <section className="panel model-management-card" aria-label="模型管理">
     <div className="panel-heading"><div><p className="section-kicker">推理资源</p><h2>模型选择</h2></div></div>
     <FileDropSurface accept={MODEL_ACCEPT} label="拖放 PT 权重" hint="或点击选择模型文件" busyLabel="正在上传权重" icon={<Upload size={27} aria-hidden="true" />} onFile={onModelUpload} onReject={onUploadReject} busy={uploadBusy} compact />
     <InferenceDeviceSwitch status={deviceStatus} busy={deviceBusy} onSelect={(device) => void onDeviceSelect(device)} />
     <div className="field-label model-select-field">
       <span>当前模型</span>
-      <Select className="model-dropdown" selectedKey={activeModel?.id ?? null} onSelectionChange={(id) => void onActivate(String(id))} isDisabled={!models.length || uploadBusy} placeholder="暂无可选模型" aria-label="当前模型">
-        <SelectTrigger className="model-dropdown-trigger"><SelectValue /></SelectTrigger>
-        <SelectContent className="model-dropdown-popover">
-          <SelectGroup>
-            <SelectLabel>可用模型</SelectLabel>
-            {models.map((model) => <SelectItem className="model-dropdown-item" key={model.id} id={model.id} textValue={model.name}><span className="model-dropdown-option"><strong>{model.name}</strong><small>{model.source === 'official' ? '官方预训练' : model.source === 'upload' ? '自定义权重' : model.source}</small></span></SelectItem>)}
-          </SelectGroup>
-        </SelectContent>
-      </Select>
+      <div className="model-static-list" role="radiogroup" aria-label="当前模型">
+        {orderedModels.map((model) => <button key={model.id} type="button" role="radio" aria-checked={model.is_active} className={model.is_active ? 'model-static-item selected' : 'model-static-item'} disabled={uploadBusy} onClick={() => void onActivate(String(model.id))}><span className="model-static-info"><strong>{model.name}</strong><small>{model.source === 'official' ? '官方预训练' : model.source === 'upload' ? '自定义权重' : model.source}</small></span><span className={model.is_active ? 'model-static-check checked' : 'model-static-check'} aria-hidden="true"><svg viewBox="0 0 64 64" focusable="false"><path d="M 0 16 V 56 A 8 8 90 0 0 8 64 H 56 A 8 8 90 0 0 64 56 V 8 A 8 8 90 0 0 56 0 H 8 A 8 8 90 0 0 0 8 V 16 L 32 48 L 64 16 V 8 A 8 8 90 0 0 56 0 H 8 A 8 8 90 0 0 0 8 V 56 A 8 8 90 0 0 8 64 H 56 A 8 8 90 0 0 64 56 V 16" pathLength={575.05} /></svg></span></button>)}
+        {!models.length && <p className="model-static-empty">暂无可选模型</p>}
+      </div>
     </div>
     {activeModel && <div className="selected-model-summary"><span>当前使用</span><small>{activeModel.source} · {formatTime(activeModel.created_at)}</small></div>}
     {showBaselineControls && <BaselineControls config={baselineConfig} onChange={onBaselineChange} compact />}
@@ -1391,6 +1972,87 @@ function HistoryDeleteDialog({ entries, busy, error, onCancel, onConfirm }: { en
       <div className="history-delete-actions"><button className="text-button" type="button" disabled={busy} onClick={onCancel}>取消</button><button className="command-button danger" type="button" disabled={busy} onClick={onConfirm}>{busy ? <Loader2 className="spin" size={16} aria-hidden="true" /> : <Trash2 size={16} aria-hidden="true" />}确认删除</button></div>
     </section>
   </div>;
+}
+
+const ENTRY_REVEAL_TIMING = { fill: 950, hold: 240, reveal: 850 };
+
+function EntryReveal({ open, darkMode, onFinish }: { open: boolean; darkMode: boolean; onFinish: () => void }) {
+  const [progress, setProgress] = useState(0);
+  const [phase, setPhase] = useState<'fill' | 'reveal'>('fill');
+
+  useEffect(() => {
+    if (!open) return undefined;
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      onFinish();
+      return undefined;
+    }
+    setProgress(0);
+    setPhase('fill');
+    const startedAt = performance.now();
+    let frame = 0;
+    const timers: number[] = [];
+    const tick = (now: number) => {
+      const t = Math.min(1, (now - startedAt) / ENTRY_REVEAL_TIMING.fill);
+      setProgress(Math.round(100 * (1 - (1 - t) ** 2)));
+      if (t < 1) frame = requestAnimationFrame(tick);
+      else {
+        timers.push(window.setTimeout(() => setPhase('reveal'), ENTRY_REVEAL_TIMING.hold));
+        timers.push(window.setTimeout(onFinish, ENTRY_REVEAL_TIMING.hold + ENTRY_REVEAL_TIMING.reveal));
+      }
+    };
+    frame = requestAnimationFrame(tick);
+    return () => {
+      cancelAnimationFrame(frame);
+      timers.forEach((timer) => window.clearTimeout(timer));
+    };
+  }, [open, onFinish]);
+
+  if (!open) return null;
+  return (
+    <div className={`entry-reveal${darkMode ? ' dark' : ''}`} data-phase={phase} role="status" aria-busy={phase === 'fill'} aria-label="正在进入系统">
+      <span className="entry-reveal-shutter top" aria-hidden="true" />
+      <span className="entry-reveal-shutter bottom" aria-hidden="true" />
+      <div className="entry-reveal-progress">
+        <p className="entry-reveal-kicker">YOLOV8 ROAD OBJECT DETECTION</p>
+        <div className="entry-reveal-track"><span style={{ width: `${progress}%` }} /></div>
+        <p className="entry-reveal-count">{String(progress).padStart(3, '0')}%</p>
+      </div>
+    </div>
+  );
+}
+
+function HamsterWheel({ size = 5.5 }: { size?: number }) {
+  return (
+    <span className="hw-loader" style={{ fontSize: `${size}px` }} role="img" aria-label="正在处理">
+      <span className="hw-wheel" />
+      <span className="hw-hamster">
+        <span className="hw-hamster-body">
+          <span className="hw-hamster-head">
+            <span className="hw-hamster-ear" />
+            <span className="hw-hamster-eye" />
+            <span className="hw-hamster-nose" />
+          </span>
+          <span className="hw-limb hw-limb-fr" />
+          <span className="hw-limb hw-limb-fl" />
+          <span className="hw-limb hw-limb-br" />
+          <span className="hw-limb hw-limb-bl" />
+          <span className="hw-hamster-tail" />
+        </span>
+      </span>
+      <span className="hw-spoke" />
+    </span>
+  );
+}
+
+function NewtonsCradle({ size = 42 }: { size?: number }) {
+  return (
+    <span className="nc-cradle" style={{ '--nc-size': `${size}px` } as React.CSSProperties} aria-hidden="true">
+      <span className="nc-cradle-dot" />
+      <span className="nc-cradle-dot" />
+      <span className="nc-cradle-dot" />
+      <span className="nc-cradle-dot" />
+    </span>
+  );
 }
 
 function EmptyState({ icon, label }: { icon: React.ReactNode; label: string }) {

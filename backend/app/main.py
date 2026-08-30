@@ -10,7 +10,7 @@ import time
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict, List, Literal, Optional
+from typing import Any, Dict, List, Literal, Optional
 
 from fastapi import (
     FastAPI, File, Form, UploadFile, WebSocket, WebSocketDisconnect,
@@ -18,9 +18,8 @@ from fastapi import (
 )
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
-from fastapi.staticfiles import StaticFiles
-from fastapi.responses import JSONResponse
-from fastapi.security import HTTPBearer
+from fastapi.responses import FileResponse, JSONResponse
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from fastapi.encoders import jsonable_encoder
 from pydantic import BaseModel, Field
 
@@ -28,7 +27,16 @@ from pydantic import BaseModel, Field
 from .core.config import settings
 from .core.logger import setup_logging, get_application_logger
 from .core.metrics import get_metrics_response, track_emergency_override, update_websocket_connections
-from .core.security import SecurityManager, check_rate_limit, sanitize_filename, validate_file_type
+from .core.security import (
+    SecurityManager,
+    check_rate_limit,
+    create_access_token,
+    get_password_hash,
+    sanitize_filename,
+    validate_file_type,
+    verify_password_hash,
+    verify_token,
+)
 
 # Import middleware
 from .middleware import SecurityMiddleware, MetricsMiddleware, RequestLoggingMiddleware, HealthCheckMiddleware
@@ -107,16 +115,19 @@ class ConnectionManager:
     
     def __init__(self):
         self.active_connections: List[WebSocket] = []
+        self.connection_users: Dict[WebSocket, str] = {}
     
-    async def connect(self, websocket: WebSocket):
+    async def connect(self, websocket: WebSocket, user_id: str):
         await websocket.accept()
         self.active_connections.append(websocket)
+        self.connection_users[websocket] = user_id
         update_websocket_connections(len(self.active_connections))
         logger.info(f"WebSocket connected. Total connections: {len(self.active_connections)}")
     
     def disconnect(self, websocket: WebSocket):
         if websocket in self.active_connections:
             self.active_connections.remove(websocket)
+        self.connection_users.pop(websocket, None)
         update_websocket_connections(len(self.active_connections))
         logger.info(f"WebSocket disconnected. Total connections: {len(self.active_connections)}")
     
@@ -127,10 +138,12 @@ class ConnectionManager:
             logger.error(f"Failed to send WebSocket message: {e}")
             self.disconnect(websocket)
     
-    async def broadcast(self, message: dict):
-        """Broadcast message to all connected clients"""
+    async def broadcast(self, message: dict, user_id: Optional[str] = None):
+        """Broadcast a system event or restrict it to one authenticated account."""
         disconnected = []
         for connection in self.active_connections:
+            if user_id is not None and self.connection_users.get(connection) != user_id:
+                continue
             try:
                 await connection.send_json(message)
             except Exception as e:
@@ -166,6 +179,11 @@ class InferenceDeviceRequest(BaseModel):
 
 class HistoryDeletionRequest(BaseModel):
     ids: List[str] = Field(min_length=1, max_length=50)
+
+
+class AuthCredentials(BaseModel):
+    username: str = Field(min_length=3, max_length=32)
+    password: str = Field(min_length=8, max_length=128)
 
 
 @asynccontextmanager
@@ -355,6 +373,71 @@ async def get_project_repository() -> ProjectRepository:
     return project_repository
 
 
+def _public_user(user: Dict[str, Any]) -> Dict[str, Any]:
+    return {key: user[key] for key in ("id", "username", "created_at")}
+
+
+def _normalize_username(username: str) -> str:
+    normalized = username.strip().lower()
+    if not normalized or any(not (character.isalnum() or character in "_-.") for character in normalized):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="用户名只能包含字母、数字、下划线、短横线或点",
+        )
+    return normalized
+
+
+async def get_current_user(
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(security),
+    repository: ProjectRepository = Depends(get_project_repository),
+) -> Dict[str, Any]:
+    """Resolve the bearer token and return the active account."""
+    if not credentials:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="请先登录")
+    payload = verify_token(credentials.credentials)
+    user_id = payload.get("sub") if payload else None
+    user = repository.get_user(user_id) if user_id else None
+    if not user:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="登录已失效，请重新登录")
+    return user
+
+
+def _dependency_user_id(current_user: object) -> Optional[str]:
+    """Keep direct service-level tests backward compatible with dependency defaults."""
+    return current_user.get("id") if isinstance(current_user, dict) else None
+
+
+@app.post("/api/auth/register")
+async def register_account(
+    credentials: AuthCredentials,
+    repository: ProjectRepository = Depends(get_project_repository),
+):
+    username = _normalize_username(credentials.username)
+    user = repository.create_user(username, get_password_hash(credentials.password))
+    if not user:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="用户名已存在")
+    token = create_access_token({"sub": user["id"], "username": user["username"]})
+    return {"access_token": token, "token_type": "bearer", "user": _public_user(user)}
+
+
+@app.post("/api/auth/login")
+async def login_account(
+    credentials: AuthCredentials,
+    repository: ProjectRepository = Depends(get_project_repository),
+):
+    username = _normalize_username(credentials.username)
+    user = repository.get_user_by_username(username)
+    if not user or not verify_password_hash(credentials.password, user["password_hash"]):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="用户名或密码错误")
+    token = create_access_token({"sub": user["id"], "username": user["username"]})
+    return {"access_token": token, "token_type": "bearer", "user": _public_user(user)}
+
+
+@app.get("/api/auth/me")
+async def current_account(current_user: Dict[str, Any] = Depends(get_current_user)):
+    return _public_user(current_user)
+
+
 # Metrics endpoint
 @app.get("/metrics")
 async def metrics_endpoint():
@@ -366,7 +449,13 @@ async def metrics_endpoint():
 @app.websocket("/ws/traffic-updates")
 async def websocket_endpoint(websocket: WebSocket):
     """WebSocket endpoint for real-time traffic updates"""
-    await websocket_manager.connect(websocket)
+    token = websocket.query_params.get("token")
+    payload = verify_token(token) if token else None
+    user_id = payload.get("sub") if payload else None
+    if not user_id or not project_repository or not project_repository.get_user(user_id):
+        await websocket.close(code=4401, reason="请先登录")
+        return
+    await websocket_manager.connect(websocket, user_id)
     
     try:
         while True:
@@ -408,9 +497,11 @@ async def detect_vehicles_endpoint(
     baseline_direction: str = Form(""),
     baseline_position: float = Form(0.5),
     baseline_session: str = Form("camera"),
+    track_session: str = Form(""),
     detector: IntelligentVehicleDetector = Depends(get_vehicle_detector),
     manager: AdaptiveTrafficManager = Depends(get_traffic_manager),
-    analytics: TrafficAnalyticsService = Depends(get_analytics_service)
+    analytics: TrafficAnalyticsService = Depends(get_analytics_service),
+    current_user: Dict[str, Any] = Depends(get_current_user),
 ):
     """Analyze traffic image and detect vehicles using YOLOv8"""
     try:
@@ -452,7 +543,7 @@ async def detect_vehicles_endpoint(
         
         # Perform vehicle detection
         baseline_config = parse_baseline_config(baseline_enabled, baseline_orientation, baseline_position, baseline_direction)
-        analysis_kwargs = {"baseline_config": baseline_config, "baseline_session": baseline_session} if baseline_config else {}
+        analysis_kwargs = {"baseline_config": baseline_config, "baseline_session": baseline_session, "track_session": track_session}
         detection_result = await detector.analyze_intersection_image(temp_path, save_annotated=True, **analysis_kwargs)
         
         # Update traffic management system
@@ -472,8 +563,9 @@ async def detect_vehicles_endpoint(
             original_path = Path("./output_images") / f"history_{upload_id}_original{Path(secure_filename).suffix.lower() or '.jpg'}"
             original_path.parent.mkdir(exist_ok=True)
             background_tasks.add_task(shutil.copy2, temp_path, original_path)
-            background_tasks.add_task(
-                project_repository.add_history,
+            # Persist the ownership row before returning so the just-created
+            # annotated image can be authorized immediately by the UI.
+            project_repository.add_history(
                 media_type="camera" if source == "camera" else "image",
                 source_name=image.filename or "image",
                 class_counts={getattr(key, "value", str(key)): value for key, value in detection_result.class_counts.items()},
@@ -482,6 +574,7 @@ async def detect_vehicles_endpoint(
                 output_path=detection_result.annotated_image_path,
                 model_name=active_model["name"] if active_model else None,
                 original_path=str(original_path),
+                user_id=_dependency_user_id(current_user),
             )
 
         # Broadcast updates to WebSocket clients
@@ -491,7 +584,8 @@ async def detect_vehicles_endpoint(
                 "type": "vehicle_detection",
                 "data": jsonable_encoder(detection_result),
                 "timestamp": datetime.now(timezone.utc).isoformat()
-            }
+            },
+            user_id=_dependency_user_id(current_user),
         )
         
         # Clean up temporary file
@@ -518,16 +612,18 @@ async def detect_vehicles_endpoint(
 async def list_detection_history(
     limit: int = 50,
     repository: ProjectRepository = Depends(get_project_repository),
+    current_user: Dict[str, Any] = Depends(get_current_user),
 ):
-    return repository.list_history(max(1, min(limit, 200)))
+    return repository.list_history(max(1, min(limit, 200)), _dependency_user_id(current_user))
 
 
 @app.delete("/api/history")
 async def delete_detection_history_entries(
     deletion_request: HistoryDeletionRequest,
     repository: ProjectRepository = Depends(get_project_repository),
+    current_user: Dict[str, Any] = Depends(get_current_user),
 ):
-    deleted_ids = repository.delete_history_entries(deletion_request.ids)
+    deleted_ids = repository.delete_history_entries(deletion_request.ids, _dependency_user_id(current_user))
     return {"deleted_ids": deleted_ids}
 
 
@@ -535,8 +631,9 @@ async def delete_detection_history_entries(
 async def delete_detection_history(
     history_id: str,
     repository: ProjectRepository = Depends(get_project_repository),
+    current_user: Dict[str, Any] = Depends(get_current_user),
 ):
-    history_entry = repository.delete_history(history_id)
+    history_entry = repository.delete_history(history_id, _dependency_user_id(current_user))
     if not history_entry:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="检测记录不存在")
     return {"id": history_entry["id"]}
@@ -626,20 +723,31 @@ async def activate_model(
 
 
 @app.get("/api/training/jobs")
-async def list_training_jobs(repository: ProjectRepository = Depends(get_project_repository)):
-    return repository.list_jobs(kind="training", active_only=True)
+async def list_training_jobs(
+    repository: ProjectRepository = Depends(get_project_repository),
+    current_user: Dict[str, Any] = Depends(get_current_user),
+):
+    return repository.list_jobs(
+        kind="training", active_only=True, user_id=_dependency_user_id(current_user)
+    )
 
 
 @app.get("/api/training/runs")
-async def list_training_runs(repository: ProjectRepository = Depends(get_project_repository)):
+async def list_training_runs(
+    repository: ProjectRepository = Depends(get_project_repository),
+    current_user: Dict[str, Any] = Depends(get_current_user),
+):
     """Return completed and failed runs so thesis metrics remain traceable after restart."""
-    return repository.list_jobs(kind="training", limit=12)
+    return repository.list_jobs(
+        kind="training", limit=12, user_id=_dependency_user_id(current_user)
+    )
 
 
 @app.post("/api/training/jobs", status_code=status.HTTP_202_ACCEPTED)
 async def start_training_job(
     request: TrainingJobRequest,
     repository: ProjectRepository = Depends(get_project_repository),
+    current_user: Dict[str, Any] = Depends(get_current_user),
 ):
     if not training_service:
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="训练服务不可用")
@@ -649,23 +757,30 @@ async def start_training_job(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="数据集不存在")
     if not model:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="基础模型不存在")
-    return training_service.submit(
-        dataset,
-        model,
-        {"epochs": request.epochs, "batch": request.batch, "imgsz": request.imgsz},
-    )
+    config = {"epochs": request.epochs, "batch": request.batch, "imgsz": request.imgsz}
+    user_id = _dependency_user_id(current_user)
+    if user_id:
+        return training_service.submit(dataset, model, config, user_id=user_id)
+    # Preserve direct service-level calls used by maintenance scripts and tests.
+    return training_service.submit(dataset, model, config)
 
 
 @app.get("/api/experiments")
-async def list_comparison_experiments(repository: ProjectRepository = Depends(get_project_repository)):
+async def list_comparison_experiments(
+    repository: ProjectRepository = Depends(get_project_repository),
+    current_user: Dict[str, Any] = Depends(get_current_user),
+):
     """List persisted validation-set comparison experiments."""
-    return repository.list_jobs(kind="benchmark", limit=12)
+    return repository.list_jobs(
+        kind="benchmark", limit=12, user_id=_dependency_user_id(current_user)
+    )
 
 
 @app.post("/api/experiments/compare", status_code=status.HTTP_202_ACCEPTED)
 async def compare_models(
     request: ModelComparisonRequest,
     repository: ProjectRepository = Depends(get_project_repository),
+    current_user: Dict[str, Any] = Depends(get_current_user),
 ):
     if not training_service:
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="训练服务不可用")
@@ -679,11 +794,13 @@ async def compare_models(
     models = [repository.get_model(model_id) for model_id in model_ids]
     if any(model is None for model in models):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="存在未找到的模型")
-    return training_service.submit_comparison(
-        dataset,
-        [model for model in models if model is not None],
-        {"batch": request.batch, "imgsz": request.imgsz},
-    )
+    selected_models = [model for model in models if model is not None]
+    config = {"batch": request.batch, "imgsz": request.imgsz}
+    user_id = _dependency_user_id(current_user)
+    if user_id:
+        return training_service.submit_comparison(dataset, selected_models, config, user_id=user_id)
+    # Preserve direct service-level calls used by maintenance scripts and tests.
+    return training_service.submit_comparison(dataset, selected_models, config)
 
 
 @app.post("/api/detect-video", status_code=status.HTTP_202_ACCEPTED)
@@ -694,6 +811,7 @@ async def detect_video(
     baseline_direction: str = Form(""),
     baseline_position: float = Form(0.5),
     repository: ProjectRepository = Depends(get_project_repository),
+    current_user: Dict[str, Any] = Depends(get_current_user),
 ):
     if not video_processing_service:
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="视频服务不可用")
@@ -709,13 +827,21 @@ async def detect_video(
     active_model = next((model for model in repository.list_models() if model["is_active"]), None)
     baseline_config = parse_baseline_config(baseline_enabled, baseline_orientation, baseline_position, baseline_direction)
     return video_processing_service.submit(
-        source_path, filename, active_model["name"] if active_model else "unknown", baseline_config
+        source_path,
+        filename,
+        active_model["name"] if active_model else "unknown",
+        baseline_config,
+        user_id=_dependency_user_id(current_user),
     )
 
 
 @app.get("/api/video-jobs/{job_id}")
-async def get_video_job(job_id: str, repository: ProjectRepository = Depends(get_project_repository)):
-    job = repository.get_job(job_id)
+async def get_video_job(
+    job_id: str,
+    repository: ProjectRepository = Depends(get_project_repository),
+    current_user: Dict[str, Any] = Depends(get_current_user),
+):
+    job = repository.get_job(job_id, _dependency_user_id(current_user))
     if not job or job["kind"] != "video":
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="视频任务不存在")
     return job
@@ -888,17 +1014,40 @@ async def get_traffic_analytics(
         )
 
 
-# Serve generated detection images. Create the directory before mounting so the
-# route exists even before the first frame has been processed.
+# Serve generated detection media through an ownership-checked API. Create the
+# directories before registering the routes so startup works before first use.
 try:
     output_images_directory = Path("./output_images")
     output_images_directory.mkdir(exist_ok=True)
-    app.mount("/static", StaticFiles(directory=str(output_images_directory)), name="static")
     output_videos_directory = Path("./output_videos")
     output_videos_directory.mkdir(exist_ok=True)
-    app.mount("/videos", StaticFiles(directory=str(output_videos_directory)), name="videos")
 except Exception as e:
     logger.warning(f"Could not mount static files: {e}")
+
+
+@app.get("/api/media/{media_kind}/{filename}")
+async def get_owned_media(
+    media_kind: Literal["images", "videos"],
+    filename: str,
+    token: Optional[str] = None,
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(security),
+    repository: ProjectRepository = Depends(get_project_repository),
+):
+    """Return generated media only when it belongs to the authenticated user."""
+    access_token = credentials.credentials if credentials else token
+    payload = verify_token(access_token) if access_token else None
+    user_id = payload.get("sub") if payload else None
+    if not user_id or not repository.get_user(user_id):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="请先登录")
+    if Path(filename).name != filename or filename in {".", ".."}:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="媒体文件名无效")
+    if not repository.user_owns_media(user_id, filename):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="媒体文件不存在")
+    root = output_images_directory if media_kind == "images" else output_videos_directory
+    media_path = (root / filename).resolve()
+    if not media_path.is_relative_to(root.resolve()) or not media_path.is_file():
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="媒体文件不存在")
+    return FileResponse(media_path)
 
 
 # Custom exception handlers
