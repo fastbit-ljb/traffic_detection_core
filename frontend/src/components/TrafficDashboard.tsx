@@ -182,6 +182,7 @@ interface Job {
   result?: {
     output_path?: string;
     model?: ProjectModel;
+    class_counts?: Partial<TargetCounts>;
     flow_counts?: Partial<FlowCounts>;
     metrics?: ModelMetrics;
     run_dir?: string;
@@ -190,6 +191,7 @@ interface Job {
     error?: string;
   } | null;
   flow_counts?: Partial<FlowCounts>;
+  class_counts?: Partial<TargetCounts>;
   created_at: string;
 }
 
@@ -329,6 +331,7 @@ export function TrafficDashboard() {
   const [trainingRuns, setTrainingRuns] = useState<Job[]>([]);
   const [comparisonJobs, setComparisonJobs] = useState<Job[]>([]);
   const [videoJob, setVideoJob] = useState<Job | null>(null);
+  const [videoCounts, setVideoCounts] = useState<TargetCounts>(() => normalizeCounts());
   const [selectedDatasetId, setSelectedDatasetId] = useState('');
   const [selectedBaseModelId, setSelectedBaseModelId] = useState('');
   const [selectedComparisonModelIds, setSelectedComparisonModelIds] = useState<string[]>([]);
@@ -655,7 +658,10 @@ export function TrafficDashboard() {
       videoFlowJobRef.current = videoJob.id;
       videoFlowLastRef.current = 0;
       setVideoFlowSeries([]);
+      setVideoCounts(normalizeCounts());
     }
+    const jobCounts = videoJob.result?.class_counts ?? videoJob.class_counts;
+    if (jobCounts) setVideoCounts(normalizeCounts(jobCounts));
     const finished = videoJob.status === 'completed' || videoJob.status === 'failed';
     if (!finished && videoJob.status !== 'running') return;
     if (videoJob.flow_counts == null && videoJob.result?.flow_counts == null) return;
@@ -1029,6 +1035,7 @@ export function TrafficDashboard() {
   // Chinese labels itself, even while an older backend is still being restarted.
   const imageUrl = imagePreviewUrl ?? annotatedImageUrl(imageResult?.annotated_image_path);
   const liveFlowTotals = flowTotals(liveFlowCounts);
+  const videoJobTotals = flowTotals(normalizeFlowCounts(videoJob?.result?.flow_counts ?? videoJob?.flow_counts));
   const processedVideoUrl = videoUrl(videoJob?.result?.output_path, videoJob?.id);
 
   if (!authReady) return <div className="auth-screen"><section className="auth-loading"><p className="eyebrow">YOLOV8 ROAD OBJECT DETECTION</p><h1>正在检查登录状态</h1></section></div>;
@@ -1124,7 +1131,7 @@ export function TrafficDashboard() {
               </section>
               <div className="live-stat-stack">
                 <MetricsPanel counts={counts} result={liveResult} chartData={chartData} darkMode={theme === 'dark'} />
-                {baselineConfig.enabled && (liveResult || liveFlowSeries.length > 0) && <BaselineFlowPanel series={liveFlowSeries} entryTotal={liveFlowTotals.entry} exitTotal={liveFlowTotals.exit} darkMode={theme === 'dark'} />}
+                <BaselineFlowPanel series={liveFlowSeries} entryTotal={liveFlowTotals.entry} exitTotal={liveFlowTotals.exit} darkMode={theme === 'dark'} />
               </div>
             </div>
           )}
@@ -1169,7 +1176,10 @@ export function TrafficDashboard() {
                   {videoJob ? <VideoJobPanel job={videoJob} url={processedVideoUrl} onNewVideo={clearVideoJob} /> : null}
                 </FileDropSurface>
               </section>
-              <VideoStatusPanel job={videoJob} flowSeries={videoFlowSeries} darkMode={theme === 'dark'} />
+              <div className="live-stat-stack">
+                <MetricsPanel counts={videoCounts} chartData={{ ...chartData, datasets: [{ ...chartData.datasets[0], data: TARGETS.map((target) => videoCounts[target.key]) }] }} darkMode={theme === 'dark'} kicker="检测统计" total={TARGETS.reduce((sum, target) => sum + videoCounts[target.key], 0)} footer={videoJob ? videoJob.message : undefined} />
+                <BaselineFlowPanel series={videoFlowSeries} entryTotal={videoJobTotals.entry} exitTotal={videoJobTotals.exit} darkMode={theme === 'dark'} />
+              </div>
             </div>
           )}
 
@@ -1595,9 +1605,9 @@ function BaselineControls({ config, onChange, compact = false }: { config: Basel
   </div>;
 }
 
-function MetricsPanel({ counts, result, chartData, darkMode }: { counts: TargetCounts; result: DetectionResult | null; chartData: ChartData<'bar', number[], string>; darkMode: boolean }) {
+function MetricsPanel({ counts, result, chartData, darkMode, total, footer, kicker = '当前帧', title = '目标数量' }: { counts: TargetCounts; result?: DetectionResult | null; chartData: ChartData<'bar', number[], string>; darkMode: boolean; total?: number; footer?: string; kicker?: string; title?: string }) {
   const chartColor = darkMode ? '#d9e2e8' : '#53616e';
-  return <section className="panel metrics-panel" aria-label="当前目标统计"><div className="panel-heading"><div><p className="section-kicker">当前帧</p><h2>目标数量</h2></div><span className="frame-total">{result?.total_vehicles ?? 0} 个目标</span></div><div className="stat-strip">{TARGETS.map((target) => <span key={target.key}><small>{target.label}</small><strong>{counts[target.key]}</strong></span>)}</div><div className="chart-area"><Bar data={chartData} options={{ responsive: true, maintainAspectRatio: false, animation: false, plugins: { legend: { display: false }, tooltip: { displayColors: false } }, scales: { x: { grid: { display: false }, border: { display: false }, ticks: { color: chartColor } }, y: { beginAtZero: true, ticks: { precision: 0, color: chartColor }, border: { display: false } } } }} /></div><div className="last-update"><Clock3 size={15} aria-hidden="true" /><span>{result ? `${formatTime(result.detection_timestamp)} · ${(result.processing_time * 1000).toFixed(0)} ms` : '等待检测数据'}</span></div></section>;
+  return <section className="panel metrics-panel" aria-label="当前目标统计"><div className="panel-heading"><div><p className="section-kicker">{kicker}</p><h2>{title}</h2></div><span className="frame-total">{total ?? result?.total_vehicles ?? 0} 个目标</span></div><div className="stat-strip">{TARGETS.map((target) => <span key={target.key}><small>{target.label}</small><strong>{counts[target.key]}</strong></span>)}</div><div className="chart-area"><Bar data={chartData} options={{ responsive: true, maintainAspectRatio: false, animation: false, plugins: { legend: { display: false }, tooltip: { displayColors: false } }, scales: { x: { grid: { display: false }, border: { display: false }, ticks: { color: chartColor } }, y: { beginAtZero: true, ticks: { precision: 0, color: chartColor }, border: { display: false } } } }} /></div><div className="last-update"><Clock3 size={15} aria-hidden="true" /><span>{footer ?? (result ? `${formatTime(result.detection_timestamp)} · ${(result.processing_time * 1000).toFixed(0)} ms` : '等待检测数据')}</span></div></section>;
 }
 
 const flowAreaGradient = (context: ScriptableContext<'line'>, rgb: string) => {
@@ -1787,18 +1797,6 @@ function VideoJobPanel({ job, url, onNewVideo }: { job: Job; url: string | null;
   </div>;
 }
 
-function VideoStatusPanel({ job, flowSeries, darkMode }: { job: Job | null; flowSeries: FlowSample[]; darkMode: boolean }) {
-  const hasBaseline = job?.payload.baseline_enabled === 'true';
-  if (job && hasBaseline) {
-    const jobTotals = flowTotals(normalizeFlowCounts(job.result?.flow_counts ?? job.flow_counts));
-    return <BaselineFlowPanel series={flowSeries} entryTotal={jobTotals.entry} exitTotal={jobTotals.exit} darkMode={darkMode} />;
-  }
-  return <section className="panel video-status-panel" aria-label="视频任务状态">
-    <div className="panel-heading"><div><p className="section-kicker">视频任务</p><h2>检测状态</h2></div></div>
-    {job ? <div className="video-task-status"><div className="job-status-line"><span className={`job-state ${job.status}`}>{job.status}</span><strong>{job.message}</strong><span>{Math.round(job.progress)}%</span></div><div className="progress-track"><span style={{ width: `${job.progress}%` }} /></div></div> : <VideoIdleCard />}
-  </section>;
-}
-
 function DatasetRow({ dataset, selected, onSelect }: { dataset: Dataset; selected: boolean; onSelect: () => void }) {
   const counts = normalizeCounts(dataset.summary.labels_by_class);
   return <button className={selected ? 'resource-row selected' : 'resource-row'} type="button" onClick={onSelect}><span><strong>{dataset.name}</strong><small>训练 {dataset.summary.images.train} / 验证 {dataset.summary.images.val}</small></span><span className="mini-counts">{TARGETS.map((target) => <i key={target.key}>{target.label[0]} {counts[target.key]}</i>)}</span></button>;
@@ -1959,27 +1957,6 @@ function HistoryDeleteDialog({ entries, busy, error, onCancel, onConfirm }: { en
       <p className="section-kicker">删除确认</p><h3 id="history-delete-title">{label}</h3><p id="history-delete-description">删除后无法恢复。</p>{error && <p className="history-delete-error" role="alert">{error}</p>}
       <div className="history-delete-actions"><button className="text-button" type="button" disabled={busy} onClick={onCancel}>取消</button><button className="command-button danger" type="button" disabled={busy} onClick={onConfirm}>{busy ? <Loader2 className="spin" size={16} aria-hidden="true" /> : <Trash2 size={16} aria-hidden="true" />}确认删除</button></div>
     </section>
-  </div>;
-}
-
-const VIDEO_IDLE_STEPS = [
-  { title: '导入视频', desc: '拖入左侧区域，或点击选择文件' },
-  { title: '开启基准线', desc: '需要统计进出流量时勾选，可调方向与位置' },
-  { title: '查看流量曲线', desc: '处理过程中实时累计，完成后可回放结果' },
-];
-
-function VideoIdleCard() {
-  return <div className="video-idle-card">
-    <div className="video-idle-visual" aria-hidden="true">
-      <svg viewBox="0 0 280 96" role="presentation">
-        <path className="vi-curve vi-curve-out" d="M0 84 C 30 80, 56 66, 84 70 S 140 82 168 72 S 226 48 252 52 S 272 44 280 40" />
-        <path className="vi-curve vi-curve-in" d="M0 78 C 24 70, 40 52, 64 56 S 112 70 136 58 S 190 26 216 34 S 260 22 280 18" />
-      </svg>
-      <span className="video-idle-status"><i />监控待机</span>
-    </div>
-    <ol className="video-idle-steps">
-      {VIDEO_IDLE_STEPS.map((step, index) => <li key={step.title}><b>{index + 1}</b><div><strong>{step.title}</strong><small>{step.desc}</small></div></li>)}
-    </ol>
   </div>;
 }
 
