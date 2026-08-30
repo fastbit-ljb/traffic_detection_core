@@ -272,6 +272,25 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 if (Test-ListeningPort 8000) {
+    $portOwnedByOtherProject = $false
+    try {
+        $existingModels = Invoke-RestMethod "$apiUrl/api/models" -TimeoutSec 5
+        $foreignModels = @($existingModels | Where-Object { $_.path -and ($_.path -notlike "$projectRoot*") })
+        if ($foreignModels.Count -gt 0) {
+            $portOwnedByOtherProject = $true
+            Write-Host "Port 8000 is serving a backend whose models belong to another project:" -ForegroundColor Red
+            Write-Host "  $($foreignModels[0].path)" -ForegroundColor Red
+        }
+    } catch {
+        # /api/models unreachable: whatever listens here is not a compatible backend.
+        $portOwnedByOtherProject = $true
+        Write-Host "Port 8000 is occupied by a process that is not this project's backend." -ForegroundColor Red
+    }
+
+    if ($portOwnedByOtherProject) {
+        throw "Close the process on port 8000 (see logs above), then rerun this script."
+    }
+
     Write-Host "Backend already listening on port 8000."
 } else {
     $backendLog = Join-Path $logsDir 'backend-dev.log'
