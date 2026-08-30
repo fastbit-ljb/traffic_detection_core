@@ -1049,7 +1049,6 @@ export function TrafficDashboard() {
         <div className="side-rail-brand" aria-hidden="true"><Car size={19} /></div>
         <button className="side-rail-item side-rail-collapse" type="button" title={railCollapsed ? '展开侧边栏' : '收起侧边栏'} aria-label={railCollapsed ? '展开侧边栏' : '收起侧边栏'} onClick={toggleRail}>
           {railCollapsed ? <ChevronsRight size={18} aria-hidden="true" /> : <ChevronsLeft size={18} aria-hidden="true" />}
-          {!railCollapsed && <span>收起</span>}
         </button>
         <nav className="side-rail-nav" aria-label="主导航">
           {RAIL_NAV_SECTIONS.map((section) => (

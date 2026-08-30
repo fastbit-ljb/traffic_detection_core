@@ -341,7 +341,7 @@ h1, h2, p { margin-top: 0; } h1 { margin-bottom: 0; color: #17212b; font-size: 2
 .side-rail.collapsed .side-rail-item { justify-content: center; padding: 0; }
 .side-rail-item:hover { color: #17212b; background: #eef4f2; }
 .side-rail-item.active { color: #0f6761; background: #e8f3f2; }
-.side-rail-collapse { margin: 0 auto 8px; color: #687786; }
+.side-rail-collapse { width: 40px; justify-content: center; padding: 0; margin: 0 auto 8px; color: #687786; }
 :root[data-theme='dark'] .side-rail { background: #12181e; border-right-color: #2b3740; }
 :root[data-theme='dark'] .side-rail-brand { color: #bceae5; background: #15363a; border-color: #397b78; }
 :root[data-theme='dark'] .side-rail-group-label { color: #7d8a94; }
