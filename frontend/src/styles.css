@@ -506,3 +506,28 @@ h1, h2, p { margin-top: 0; } h1 { margin-bottom: 0; color: #17212b; font-size: 2
   .image-grid .metrics-panel { display: flex; flex-direction: column; }
   .image-grid .metrics-panel .chart-area { flex: 1; min-height: 150px; }
 }
+
+/* 登录进场动画 — Split Reveal(animata.design/docs/preloader/split-reveal)适配:主题色幕布 + 进度线,中缝上下展开 */
+.entry-reveal { position: fixed; inset: 0; z-index: 90; }
+.entry-reveal[data-phase='reveal'] { pointer-events: none; }
+.entry-reveal-shutter { position: absolute; left: 0; width: 100%; height: 50.5%; background: #f3f5f7; will-change: transform; }
+.entry-reveal-shutter.top { top: 0; }
+.entry-reveal-shutter.bottom { bottom: 0; }
+.entry-reveal.dark .entry-reveal-shutter { background: #090d11; }
+.entry-reveal[data-phase='reveal'] .entry-reveal-shutter.top { animation: entry-reveal-up .85s cubic-bezier(.76, 0, .24, 1) forwards; }
+.entry-reveal[data-phase='reveal'] .entry-reveal-shutter.bottom { animation: entry-reveal-down .85s cubic-bezier(.76, 0, .24, 1) forwards; }
+@keyframes entry-reveal-up { to { transform: translate3d(0, -101%, 0); } }
+@keyframes entry-reveal-down { to { transform: translate3d(0, 101%, 0); } }
+.entry-reveal-progress { position: absolute; inset: 0; display: grid; place-content: center; justify-items: center; gap: 12px; transition: opacity .28s ease-out; }
+.entry-reveal[data-phase='reveal'] .entry-reveal-progress { opacity: 0; }
+.entry-reveal-kicker { margin: 0; color: #97a3ac; font-size: 10px; font-weight: 700; letter-spacing: .32em; }
+.entry-reveal-track { width: min(260px, 64vw); height: 2px; overflow: hidden; background: rgba(17, 24, 39, .1); }
+.entry-reveal-track span { display: block; height: 100%; background: #111827; transition: width .12s linear; }
+.entry-reveal-count { margin: 0; color: #5c6b7a; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 11px; font-weight: 600; letter-spacing: .14em; font-variant-numeric: tabular-nums; }
+.entry-reveal.dark .entry-reveal-kicker { color: #66727c; }
+.entry-reveal.dark .entry-reveal-track { background: rgba(232, 238, 242, .14); }
+.entry-reveal.dark .entry-reveal-track span { background: #e8eef2; }
+.entry-reveal.dark .entry-reveal-count { color: #8d99a3; }
+@media (prefers-reduced-motion: reduce) {
+  .entry-reveal { display: none !important; }
+}

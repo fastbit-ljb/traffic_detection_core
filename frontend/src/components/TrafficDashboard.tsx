@@ -347,6 +347,8 @@ export function TrafficDashboard() {
   const [authBusy, setAuthBusy] = useState(false);
   const [authMessage, setAuthMessage] = useState<string | null>(null);
   const [authTransitioning, setAuthTransitioning] = useState(false);
+  const [entryReveal, setEntryReveal] = useState(false);
+  const finishEntryReveal = useCallback(() => setEntryReveal(false), []);
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
@@ -384,6 +386,7 @@ export function TrafficDashboard() {
       if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
         completeAuthentication();
       } else {
+        setEntryReveal(true);
         setAuthTransitioning(true);
         window.setTimeout(completeAuthentication, 420);
       }
@@ -1045,7 +1048,8 @@ export function TrafficDashboard() {
   if (!authUser) return <AuthPanel mode={authMode} form={authForm} busy={authBusy} leaving={authTransitioning} message={authMessage} onModeChange={(mode) => { setAuthMode(mode); setAuthMessage(null); }} onChange={setAuthForm} onSubmit={submitAuth} />;
 
   return (
-    <div className="app-shell app-shell--entering">
+    <div className={`app-shell${entryReveal ? '' : ' app-shell--entering'}`}>
+      <EntryReveal open={entryReveal} darkMode={theme === 'dark'} onFinish={finishEntryReveal} />
       <aside className={railCollapsed ? 'side-rail collapsed' : 'side-rail'}>
         <div className="side-rail-brand" aria-hidden="true"><Car size={19} /></div>
         <button className="side-rail-item side-rail-collapse" type="button" title={railCollapsed ? '展开侧边栏' : '收起侧边栏'} aria-label={railCollapsed ? '展开侧边栏' : '收起侧边栏'} onClick={toggleRail}>
@@ -1961,6 +1965,53 @@ function HistoryDeleteDialog({ entries, busy, error, onCancel, onConfirm }: { en
       <div className="history-delete-actions"><button className="text-button" type="button" disabled={busy} onClick={onCancel}>取消</button><button className="command-button danger" type="button" disabled={busy} onClick={onConfirm}>{busy ? <Loader2 className="spin" size={16} aria-hidden="true" /> : <Trash2 size={16} aria-hidden="true" />}确认删除</button></div>
     </section>
   </div>;
+}
+
+const ENTRY_REVEAL_TIMING = { fill: 950, hold: 240, reveal: 850 };
+
+function EntryReveal({ open, darkMode, onFinish }: { open: boolean; darkMode: boolean; onFinish: () => void }) {
+  const [progress, setProgress] = useState(0);
+  const [phase, setPhase] = useState<'fill' | 'reveal'>('fill');
+
+  useEffect(() => {
+    if (!open) return undefined;
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      onFinish();
+      return undefined;
+    }
+    setProgress(0);
+    setPhase('fill');
+    const startedAt = performance.now();
+    let frame = 0;
+    const timers: number[] = [];
+    const tick = (now: number) => {
+      const t = Math.min(1, (now - startedAt) / ENTRY_REVEAL_TIMING.fill);
+      setProgress(Math.round(100 * (1 - (1 - t) ** 2)));
+      if (t < 1) frame = requestAnimationFrame(tick);
+      else {
+        timers.push(window.setTimeout(() => setPhase('reveal'), ENTRY_REVEAL_TIMING.hold));
+        timers.push(window.setTimeout(onFinish, ENTRY_REVEAL_TIMING.hold + ENTRY_REVEAL_TIMING.reveal));
+      }
+    };
+    frame = requestAnimationFrame(tick);
+    return () => {
+      cancelAnimationFrame(frame);
+      timers.forEach((timer) => window.clearTimeout(timer));
+    };
+  }, [open, onFinish]);
+
+  if (!open) return null;
+  return (
+    <div className={`entry-reveal${darkMode ? ' dark' : ''}`} data-phase={phase} role="status" aria-busy={phase === 'fill'} aria-label="正在进入系统">
+      <span className="entry-reveal-shutter top" aria-hidden="true" />
+      <span className="entry-reveal-shutter bottom" aria-hidden="true" />
+      <div className="entry-reveal-progress">
+        <p className="entry-reveal-kicker">YOLOV8 ROAD OBJECT DETECTION</p>
+        <div className="entry-reveal-track"><span style={{ width: `${progress}%` }} /></div>
+        <p className="entry-reveal-count">{String(progress).padStart(3, '0')}%</p>
+      </div>
+    </div>
+  );
 }
 
 function HamsterWheel({ size = 5.5 }: { size?: number }) {
