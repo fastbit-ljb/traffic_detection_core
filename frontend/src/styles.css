@@ -332,7 +332,7 @@ h1, h2, p { margin-top: 0; } h1 { margin-bottom: 0; color: #17212b; font-size: 2
 .side-rail { position: sticky; top: 0; align-self: flex-start; height: 100vh; width: 66px; display: flex; flex-direction: column; gap: 6px; padding: 12px 10px; background: #ffffff; border-right: 1px solid #dbe1e6; transition: width .28s cubic-bezier(.4, 0, .2, 1); overflow: hidden; }
 .side-rail.collapsed { width: 66px; }
 .side-rail:not(.collapsed) { width: 196px; }
-.side-rail-brand { flex: 0 0 auto; width: 40px; height: 40px; display: grid; place-items: center; margin: 0 auto 4px; color: #0f6761; background: #e8f3f2; border: 1px solid #b8d7d4; border-radius: 10px; }
+.side-rail-brand { flex: 0 0 auto; width: 40px; height: 40px; display: grid; place-items: center; margin: 0 13px 4px; color: #0f6761; background: #e8f3f2; border: 1px solid #b8d7d4; border-radius: 10px; }
 .side-rail-nav { flex: 1; display: flex; flex-direction: column; gap: 14px; min-height: 0; overflow-y: auto; overflow-x: hidden; }
 .side-rail-group { display: grid; gap: 4px; }
 .side-rail-group-label { margin: 0 0 2px; padding: 0 10px; color: #8b98a4; font-size: 10.5px; font-weight: 700; letter-spacing: .06em; white-space: nowrap; }
@@ -341,7 +341,7 @@ h1, h2, p { margin-top: 0; } h1 { margin-bottom: 0; color: #17212b; font-size: 2
 .side-rail.collapsed .side-rail-item { justify-content: center; padding: 0; }
 .side-rail-item:hover { color: #17212b; background: #eef4f2; }
 .side-rail-item.active { color: #0f6761; background: #e8f3f2; }
-.side-rail-collapse { width: 40px; justify-content: center; padding: 0; margin: 0 auto 8px; color: #687786; }
+.side-rail-collapse { width: 40px; justify-content: center; padding: 0; margin: 0 13px 8px; color: #687786; }
 :root[data-theme='dark'] .side-rail { background: #12181e; border-right-color: #2b3740; }
 :root[data-theme='dark'] .side-rail-brand { color: #bceae5; background: #15363a; border-color: #397b78; }
 :root[data-theme='dark'] .side-rail-group-label { color: #7d8a94; }
