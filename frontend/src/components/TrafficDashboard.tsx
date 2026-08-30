@@ -813,6 +813,7 @@ export function TrafficDashboard() {
     videoFlowJobRef.current = null;
     videoFlowLastRef.current = 0;
     setVideoFlowSeries([]);
+    setVideoCounts(normalizeCounts());
     setVideoJob(null);
   }, []);
 
