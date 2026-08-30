@@ -1744,12 +1744,12 @@ function FileDropSurface({ accept, label, hint, busyLabel, icon, onFile, onRejec
   return <div className={`file-drop-surface${compact ? ' compact' : ''}${dragging ? ' is-dragging' : ''}${children ? ' has-content' : ''}${className ? ` ${className}` : ''}`} aria-busy={busy} onDragEnter={handleDragEnter} onDragOver={handleDragOver} onDragLeave={handleDragLeave} onDrop={handleDrop}>
     <input ref={inputRef} className="file-drop-input" type="file" accept={accept} disabled={busy} onChange={(event) => { const file = event.currentTarget.files?.[0]; event.currentTarget.value = ''; acceptFile(file); }} />
     {children ?? <button className="file-drop-prompt" type="button" onClick={() => inputRef.current?.click()} disabled={busy}>
-      <span className="file-drop-icon">{busy ? <Loader2 className="spin" size={compact ? 26 : 36} aria-hidden="true" /> : icon}</span>
+      <span className="file-drop-icon">{busy ? <HamsterWheel size={compact ? 3.6 : 5.5} /> : icon}</span>
       <span className="file-drop-copy"><strong>{busy ? busyLabel : label}</strong><small>{busy ? '文件正在处理，请稍候' : hint}</small></span>
       {!compact && <span className="file-drop-action">选择文件</span>}
     </button>}
     {dragging && <div className="file-drop-overlay" aria-hidden="true"><UploadCloud size={compact ? 30 : 44} /><strong>{busy ? '当前任务处理中' : '松开即可导入'}</strong><span>{busy ? '完成后可继续添加文件' : label}</span></div>}
-    {busy && children && <div className="file-drop-busy"><Loader2 className="spin" size={24} aria-hidden="true" /><span>{busyLabel}</span></div>}
+    {busy && children && <div className="file-drop-busy"><HamsterWheel size={4} /><span>{busyLabel}</span></div>}
   </div>;
 }
 
@@ -1980,6 +1980,29 @@ function VideoIdleCard() {
       {VIDEO_IDLE_STEPS.map((step, index) => <li key={step.title}><b>{index + 1}</b><div><strong>{step.title}</strong><small>{step.desc}</small></div></li>)}
     </ol>
   </div>;
+}
+
+function HamsterWheel({ size = 5.5 }: { size?: number }) {
+  return (
+    <span className="hw-loader" style={{ fontSize: `${size}px` }} role="img" aria-label="正在处理">
+      <span className="hw-wheel" />
+      <span className="hw-hamster">
+        <span className="hw-hamster-body">
+          <span className="hw-hamster-head">
+            <span className="hw-hamster-ear" />
+            <span className="hw-hamster-eye" />
+            <span className="hw-hamster-nose" />
+          </span>
+          <span className="hw-limb hw-limb-fr" />
+          <span className="hw-limb hw-limb-fl" />
+          <span className="hw-limb hw-limb-br" />
+          <span className="hw-limb hw-limb-bl" />
+          <span className="hw-hamster-tail" />
+        </span>
+      </span>
+      <span className="hw-spoke" />
+    </span>
+  );
 }
 
 function EmptyState({ icon, label }: { icon: React.ReactNode; label: string }) {
