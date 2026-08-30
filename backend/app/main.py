@@ -497,6 +497,7 @@ async def detect_vehicles_endpoint(
     baseline_direction: str = Form(""),
     baseline_position: float = Form(0.5),
     baseline_session: str = Form("camera"),
+    track_session: str = Form(""),
     detector: IntelligentVehicleDetector = Depends(get_vehicle_detector),
     manager: AdaptiveTrafficManager = Depends(get_traffic_manager),
     analytics: TrafficAnalyticsService = Depends(get_analytics_service),
@@ -542,7 +543,7 @@ async def detect_vehicles_endpoint(
         
         # Perform vehicle detection
         baseline_config = parse_baseline_config(baseline_enabled, baseline_orientation, baseline_position, baseline_direction)
-        analysis_kwargs = {"baseline_config": baseline_config, "baseline_session": baseline_session} if baseline_config else {}
+        analysis_kwargs = {"baseline_config": baseline_config, "baseline_session": baseline_session, "track_session": track_session}
         detection_result = await detector.analyze_intersection_image(temp_path, save_annotated=True, **analysis_kwargs)
         
         # Update traffic management system

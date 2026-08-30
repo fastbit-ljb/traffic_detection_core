@@ -116,6 +116,7 @@ const RAIL_NAV_SECTIONS = [
 interface DetectionResult {
   total_vehicles: number;
   class_counts: Partial<TargetCounts>;
+  unique_counts?: Partial<TargetCounts>;
   flow_counts?: Partial<FlowCounts>;
   processing_time: number;
   annotated_image_path?: string | null;
@@ -421,7 +422,7 @@ export function TrafficDashboard() {
 
   const applyLiveResult = useCallback((result: DetectionResult) => {
     setLiveResult(result);
-    setCounts(normalizeCounts(result.class_counts));
+    setCounts(normalizeCounts(result.unique_counts ?? result.class_counts));
   }, []);
 
   const clearLiveResult = useCallback(() => {
@@ -698,6 +699,7 @@ export function TrafficDashboard() {
       formData.append('baseline_position', String(baseline.position));
       formData.append('baseline_session', `camera-${baselineSessionId ?? 0}`);
     }
+    formData.append('track_session', source === 'camera' ? `camera-${baselineSessionId ?? 0}` : '');
     return api<DetectionResult>('/api/detect-vehicles', { method: 'POST', body: formData });
   }, []);
 
@@ -1130,7 +1132,7 @@ export function TrafficDashboard() {
                 <canvas ref={canvasRef} className="hidden-canvas" />
               </section>
               <div className="live-stat-stack">
-                <MetricsPanel counts={counts} result={liveResult} chartData={chartData} darkMode={theme === 'dark'} />
+                <MetricsPanel counts={counts} result={liveResult} chartData={chartData} darkMode={theme === 'dark'} kicker="累计检出" total={TARGETS.reduce((sum, target) => sum + counts[target.key], 0)} />
                 <BaselineFlowPanel series={liveFlowSeries} entryTotal={liveFlowTotals.entry} exitTotal={liveFlowTotals.exit} darkMode={theme === 'dark'} />
               </div>
             </div>
@@ -1177,7 +1179,7 @@ export function TrafficDashboard() {
                 </FileDropSurface>
               </section>
               <div className="live-stat-stack">
-                <MetricsPanel counts={videoCounts} chartData={{ ...chartData, datasets: [{ ...chartData.datasets[0], data: TARGETS.map((target) => videoCounts[target.key]) }] }} darkMode={theme === 'dark'} kicker="检测统计" total={TARGETS.reduce((sum, target) => sum + videoCounts[target.key], 0)} footer={videoJob ? videoJob.message : undefined} />
+                <MetricsPanel counts={videoCounts} chartData={{ ...chartData, datasets: [{ ...chartData.datasets[0], data: TARGETS.map((target) => videoCounts[target.key]) }] }} darkMode={theme === 'dark'} kicker="累计检出" total={TARGETS.reduce((sum, target) => sum + videoCounts[target.key], 0)} footer={videoJob ? videoJob.message : undefined} />
                 <BaselineFlowPanel series={videoFlowSeries} entryTotal={videoJobTotals.entry} exitTotal={videoJobTotals.exit} darkMode={theme === 'dark'} />
               </div>
             </div>

@@ -60,17 +60,24 @@ class _CrossingTrack:
     center: Tuple[float, float]
     side: int
     last_seen_frame: int
+    seen_count: int = 1
 
 
 class BaselineCrossingCounter:
-    """Counts same-class centroids that move through one configurable baseline."""
+    """Counts same-class centroids that move through one configurable baseline.
 
-    def __init__(self, baseline: BaselineConfig):
+    The same per-class centroid tracker also keeps a cumulative unique count:
+    every tracked target is counted once, on the frame that confirms it is
+    really present (second sighting), instead of once per frame.
+    """
+
+    def __init__(self, baseline: Optional[BaselineConfig]):
         self.baseline = baseline
         self._next_track_id = 0
         self._frame_index = 0
         self._tracks: Dict[int, _CrossingTrack] = {}
         self._flow_counts = self.empty_counts()
+        self._seen_counts: Dict[str, int] = {target: 0 for target in TARGET_CLASS_NAMES}
 
     @staticmethod
     def empty_counts() -> Dict[str, Dict[str, int]]:
@@ -80,6 +87,8 @@ class BaselineCrossingCounter:
         }
 
     def _side(self, center: Tuple[float, float]) -> int:
+        if self.baseline is None:
+            return 0
         coordinate = center[1] if self.baseline.orientation == "horizontal" else center[0]
         offset = coordinate - self.baseline.position
         if abs(offset) < 0.015:
@@ -114,6 +123,9 @@ class BaselineCrossingCounter:
                 continue
 
             track = self._tracks[track_id]
+            track.seen_count += 1
+            if track.seen_count == 2:
+                self._seen_counts[target_type] += 1
             if side and track.side and side != track.side:
                 moved_toward_positive_side = track.side < side
                 entry_toward_positive_side = self.baseline.direction in {"down", "right"}
@@ -131,6 +143,10 @@ class BaselineCrossingCounter:
             if self._frame_index - track.last_seen_frame <= 45
         }
         return {direction: counts.copy() for direction, counts in self._flow_counts.items()}
+
+    def seen_counts(self) -> Dict[str, int]:
+        """Cumulative unique targets per class (each tracked target counted once)."""
+        return dict(self._seen_counts)
 
 
 class IntelligentVehicleDetector(LoggerMixin):
@@ -170,6 +186,7 @@ class IntelligentVehicleDetector(LoggerMixin):
         self._model_lock = threading.RLock()
         self._flow_lock = threading.RLock()
         self._live_crossing_counters: Dict[str, BaselineCrossingCounter] = {}
+        self._live_seen_counters: Dict[str, BaselineCrossingCounter] = {}
         self.performance_metrics = {
             'total_detections': 0,
             'average_inference_time': 0.0,
@@ -279,33 +296,36 @@ class IntelligentVehicleDetector(LoggerMixin):
         return 'cuda' if settings.enable_gpu_acceleration and torch.cuda.is_available() else 'cpu'
     
     async def analyze_intersection_image(
-        self, 
+        self,
         image_path: str,
         save_annotated: bool = True,
         baseline_config: Optional[Dict[str, Any]] = None,
         baseline_session: str = "camera",
+        track_session: str = "",
     ) -> VehicleDetectionResult:
         """Analyze intersection image for vehicle detection"""
         if not self.model_initialized:
             await self.initialize()
-        
+
         try:
             start_time = time.time()
-            
+
             # Load and process image
             image = cv2.imread(image_path)
             if image is None:
                 raise ValueError(f"Could not load image from {image_path}")
-            
+
             # Run detection
             results = await self._run_detection(image)
-            
+
             # Process results
             detected_vehicles = self._process_detection_results(results, image.shape)
             lane_counts = self._count_vehicles_by_lane(detected_vehicles)
             class_counts = self._count_targets_by_class(detected_vehicles)
             baseline = BaselineConfig.from_mapping(baseline_config) if baseline_config else None
-            flow_counts = self._count_live_crossings(baseline, baseline_session, detected_vehicles)
+            flow_counts, unique_counts = self._update_live_tracking(
+                baseline, baseline_session, track_session, detected_vehicles
+            )
             
             # Save annotated image if requested
             annotated_image_path = None
@@ -321,6 +341,7 @@ class IntelligentVehicleDetector(LoggerMixin):
             result = VehicleDetectionResult(
                 total_vehicles=len(detected_vehicles),
                 class_counts=class_counts,
+                unique_counts=unique_counts or {target: 0 for target in self.TARGET_CLASSES.values()},
                 flow_counts=flow_counts,
                 lane_counts=lane_counts,
                 detected_vehicles=detected_vehicles,
@@ -341,25 +362,40 @@ class IntelligentVehicleDetector(LoggerMixin):
             self.log_error_with_context(error, "vehicle_detection")
             raise
 
-    def _count_live_crossings(
+    @staticmethod
+    def _session_counter(
+        store: Dict[str, "BaselineCrossingCounter"],
+        key: str,
+        baseline: Optional[BaselineConfig],
+    ) -> BaselineCrossingCounter:
+        counter = store.get(key)
+        if counter is None:
+            counter = BaselineCrossingCounter(baseline)
+            store[key] = counter
+            if len(store) > 24:
+                store.pop(next(iter(store)))
+        return counter
+
+    def _update_live_tracking(
         self,
         baseline: Optional[BaselineConfig],
         session: str,
+        track_session: str,
         targets: List[DetectedVehicle],
-    ) -> Dict[str, Dict[str, int]]:
-        if not baseline:
-            return BaselineCrossingCounter.empty_counts()
-
-        safe_session = (session or "camera").strip()[:80]
-        counter_key = f"{safe_session}:{baseline.orientation}:{baseline.position:.4f}"
+    ) -> Tuple[Dict[str, Dict[str, int]], Optional[Dict[str, int]]]:
+        """Advance session trackers by one frame; return (flow counts, unique counts)."""
+        flow_counts = BaselineCrossingCounter.empty_counts()
+        unique_counts: Optional[Dict[str, int]] = None
         with self._flow_lock:
-            counter = self._live_crossing_counters.get(counter_key)
-            if counter is None:
-                counter = BaselineCrossingCounter(baseline)
-                self._live_crossing_counters[counter_key] = counter
-                if len(self._live_crossing_counters) > 12:
-                    self._live_crossing_counters.pop(next(iter(self._live_crossing_counters)))
-            return counter.update(targets)
+            if baseline:
+                counter_key = f"{(session or 'camera').strip()[:80]}:{baseline.orientation}:{baseline.position:.4f}"
+                counter = self._session_counter(self._live_crossing_counters, counter_key, baseline)
+                flow_counts = counter.update(targets)
+            if track_session:
+                seen = self._session_counter(self._live_seen_counters, f"{track_session.strip()[:80]}:seen", None)
+                seen.update(targets)
+                unique_counts = seen.seen_counts()
+        return flow_counts, unique_counts
     
     async def _run_detection(self, image: np.ndarray) -> List:
         """Run YOLOv8 detection on image"""
@@ -605,9 +641,9 @@ class IntelligentVehicleDetector(LoggerMixin):
 
         started_at = time.time()
         processed_frames = 0
-        latest_counts = {target_class: 0 for target_class in self.TARGET_CLASSES.values()}
+        cumulative_counts = {target_class: 0 for target_class in self.TARGET_CLASSES.values()}
         baseline = BaselineConfig.from_mapping(baseline_config) if baseline_config else None
-        crossing_counter = BaselineCrossingCounter(baseline) if baseline else None
+        crossing_counter = BaselineCrossingCounter(baseline)
         flow_counts = BaselineCrossingCounter.empty_counts()
         try:
             while True:
@@ -616,14 +652,13 @@ class IntelligentVehicleDetector(LoggerMixin):
                     break
                 results = await self._run_detection(frame)
                 targets = self._process_detection_results(results, frame.shape)
-                latest_counts = self._count_targets_by_class(targets)
-                if crossing_counter:
-                    flow_counts = crossing_counter.update(targets)
+                flow_counts = crossing_counter.update(targets)
+                cumulative_counts = crossing_counter.seen_counts()
                 writer.write(self._draw_targets(frame.copy(), targets, baseline))
                 processed_frames += 1
 
                 if progress_callback and (processed_frames % 10 == 0 or processed_frames == frame_count):
-                    update = progress_callback(processed_frames, frame_count, latest_counts, flow_counts)
+                    update = progress_callback(processed_frames, frame_count, cumulative_counts, flow_counts)
                     if inspect.isawaitable(update):
                         await update
         finally:
@@ -643,7 +678,7 @@ class IntelligentVehicleDetector(LoggerMixin):
             "frames_processed": processed_frames,
             "frame_count": frame_count,
             "fps": fps,
-            "class_counts": latest_counts,
+            "class_counts": cumulative_counts,
             "flow_counts": flow_counts,
             "baseline": baseline.as_dict() if baseline else None,
             "processing_time": processing_time,
