@@ -659,6 +659,7 @@ export function TrafficDashboard() {
     }
     const finished = videoJob.status === 'completed' || videoJob.status === 'failed';
     if (!finished && videoJob.status !== 'running') return;
+    if (videoJob.flow_counts == null && videoJob.result?.flow_counts == null) return;
     const now = Date.now();
     if (!finished && now - videoFlowLastRef.current < 900) return;
     videoFlowLastRef.current = now;
