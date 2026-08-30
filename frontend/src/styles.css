@@ -371,17 +371,16 @@ h1, h2, p { margin-top: 0; } h1 { margin-bottom: 0; color: #17212b; font-size: 2
 .model-static-info { min-width: 0; }
 .model-static-info strong { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #1f2937; font-size: 14px; }
 .model-static-info small { display: block; margin-top: 3px; color: #6d7c89; font-size: 12px; }
-.model-static-check { flex: 0 0 auto; width: 20px; height: 20px; display: grid; place-items: center; background: transparent; border: 2px solid #b6c2cc; border-radius: 5px; transition: background .45s ease, border-color .45s ease, transform .45s ease; }
-.model-static-check svg { width: 13px; height: 13px; fill: none; stroke: #ffffff; stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; stroke-dasharray: 16; stroke-dashoffset: 16; transition: stroke-dashoffset .3s ease; }
-.model-static-check.checked { background: #0f766e; border-color: #0f766e; transform: scale(1.06); transition-duration: .2s, .2s, .2s; }
-.model-static-item.selected .model-static-check svg { stroke-dashoffset: 0; transition-delay: .08s; }
-.model-static-item:active .model-static-check { transform: scale(.88); }
+.model-static-check { flex: 0 0 auto; width: 21px; height: 21px; display: grid; place-items: center; }
+.model-static-check svg { width: 100%; height: 100%; overflow: visible; }
+.model-static-check path { fill: none; stroke: #9aa6b2; stroke-width: 6; stroke-linecap: round; stroke-linejoin: round; transition: stroke-dasharray .5s ease, stroke-dashoffset .5s ease, stroke .5s ease; stroke-dasharray: 241 9999999; stroke-dashoffset: 0; }
+.model-static-check.checked path { stroke: #0f766e; stroke-dasharray: 70.51 9999999; stroke-dashoffset: -262.27; }
 .model-static-empty { margin: 0; color: #687786; font-size: 12px; }
 :root[data-theme='dark'] .model-static-item { background: #172129; border-color: #30404b; }
 :root[data-theme='dark'] .model-static-item:hover { border-color: #5ca7a1; }
 :root[data-theme='dark'] .model-static-item.selected { background: #153b3e; border-color: #5ca7a1; }
 :root[data-theme='dark'] .model-static-info strong { color: #edf3f6; }
 :root[data-theme='dark'] .model-static-info small { color: #aebbc4; }
-:root[data-theme='dark'] .model-static-check { background: #10161c; border-color: #3a4853; }
-:root[data-theme='dark'] .model-static-check.checked { background: #62c5bb; border-color: #62c5bb; }
+:root[data-theme='dark'] .model-static-check path { stroke: #5d6b76; }
+:root[data-theme='dark'] .model-static-check.checked path { stroke: #62c5bb; }
 :root[data-theme='dark'] .model-static-empty { color: #aebbc4; }
