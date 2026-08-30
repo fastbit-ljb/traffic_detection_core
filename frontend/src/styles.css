@@ -477,3 +477,17 @@ h1, h2, p { margin-top: 0; } h1 { margin-bottom: 0; color: #17212b; font-size: 2
 @media (prefers-reduced-motion: reduce) {
   .hw-hamster, .hw-hamster span, .hw-spoke { animation: none !important; }
 }
+
+/* Newton's cradle loader — port of uiverse.io/dovatgabriel/jolly-kangaroo-36 (above the video progress bar) */
+.nc-cradle { --nc-size: 42px; --nc-speed: 1.2s; --nc-color: #474554; position: relative; display: flex; align-items: center; justify-content: center; width: var(--nc-size); height: var(--nc-size); }
+.video-processing-loader .nc-cradle { margin: 2px 0 4px -2px; }
+:root[data-theme='dark'] .nc-cradle { --nc-color: #d8e0e6; }
+.nc-cradle-dot { position: relative; display: flex; align-items: center; height: 100%; width: 25%; transform-origin: center top; }
+.nc-cradle-dot::after { content: ''; display: block; width: 100%; height: 25%; border-radius: 50%; background-color: var(--nc-color); }
+.nc-cradle-dot:first-child { animation: nc-swing var(--nc-speed) linear infinite; }
+.nc-cradle-dot:last-child { animation: nc-swing2 var(--nc-speed) linear infinite; }
+@keyframes nc-swing { 0% { transform: rotate(0deg); animation-timing-function: ease-out; } 25% { transform: rotate(70deg); animation-timing-function: ease-in; } 50% { transform: rotate(0deg); animation-timing-function: linear; } }
+@keyframes nc-swing2 { 0% { transform: rotate(0deg); animation-timing-function: linear; } 50% { transform: rotate(0deg); animation-timing-function: ease-out; } 75% { transform: rotate(-70deg); animation-timing-function: ease-in; } }
+@media (prefers-reduced-motion: reduce) {
+  .nc-cradle-dot { animation: none !important; }
+}

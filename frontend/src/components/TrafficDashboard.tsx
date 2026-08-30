@@ -1763,6 +1763,7 @@ function VideoProcessingStage({ job }: { job: Job }) {
   return <div className="video-stage video-processing-stage" aria-busy="true">
     <div className="video-processing-loader">
       <div className="video-processing-header"><span className="video-processing-status"><i aria-hidden="true" /><span>{processing ? '正在分析视频' : '视频任务排队中'}</span></span><strong>{progress}%</strong></div>
+      <NewtonsCradle />
       <div className="video-processing-track"><span className="video-processing-fill" style={{ width: `${progress}%` }}><i aria-hidden="true" /></span></div>
       <div className="video-processing-ticks" aria-hidden="true">{Array.from({ length: 11 }, (_, index) => <i key={index} />)}</div>
       <div className="video-processing-footer"><span>{job.message}</span><span>{processing ? '实时进度' : '等待处理资源'}</span></div>
@@ -2001,6 +2002,17 @@ function HamsterWheel({ size = 5.5 }: { size?: number }) {
         </span>
       </span>
       <span className="hw-spoke" />
+    </span>
+  );
+}
+
+function NewtonsCradle({ size = 42 }: { size?: number }) {
+  return (
+    <span className="nc-cradle" style={{ '--nc-size': `${size}px` } as React.CSSProperties} aria-hidden="true">
+      <span className="nc-cradle-dot" />
+      <span className="nc-cradle-dot" />
+      <span className="nc-cradle-dot" />
+      <span className="nc-cradle-dot" />
     </span>
   );
 }
