@@ -846,10 +846,11 @@ export function TrafficDashboard() {
             items={TOP_NAV_ITEMS}
             activeId={activeView}
             onSelect={(id) => setActiveView(id as ActiveView)}
-            baseColor={theme === 'dark' ? '#ffffff' : '#111111'}
-            pillColor={theme === 'dark' ? '#111111' : '#ffffff'}
-            pillTextColor={theme === 'dark' ? '#ffffff' : '#111111'}
-            hoveredPillTextColor={theme === 'dark' ? '#111111' : '#ffffff'}
+            baseColor={theme === 'dark' ? '#222a31' : '#e9ebef'}
+            pillColor={theme === 'dark' ? '#eef3f6' : '#ffffff'}
+            pillTextColor={theme === 'dark' ? '#aebbc4' : '#5c6b7a'}
+            hoveredPillTextColor={theme === 'dark' ? '#edf3f6' : '#111827'}
+            activeTextColor={theme === 'dark' ? '#111827' : '#111827'}
           />
         </div>
       </div>

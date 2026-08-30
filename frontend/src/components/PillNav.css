@@ -1,21 +1,94 @@
 .pill-nav-container { position: relative; z-index: 10; flex: 0 0 auto; }
-.pill-nav { --nav-h: 38px; --pill-gap: 3px; display: flex; align-items: center; width: max-content; }
-.pill-nav-items { height: var(--nav-h); display: flex; align-items: center; gap: var(--pill-gap); padding: 3px; background: var(--base); border-radius: 999px; }
-.pill { height: 100%; display: inline-flex; align-items: center; justify-content: center; padding: 0 15px; overflow: hidden; position: relative; color: var(--pill-text); background: var(--pill-bg); border: 0; border-radius: 999px; font: inherit; font-size: 13px; font-weight: 700; line-height: 1; white-space: nowrap; }
-.pill:focus-visible, .mobile-menu-button:focus-visible, .mobile-menu-link:focus-visible { outline: 2px solid var(--base); outline-offset: 2px; }
-.hover-circle { position: absolute; left: 50%; bottom: 0; display: block; pointer-events: none; background: var(--base); border-radius: 50%; will-change: transform; }
-.label-stack { position: relative; z-index: 2; display: inline-block; line-height: 1; }
-.pill-label, .pill-label-hover { display: inline-block; line-height: 1; will-change: transform, opacity; }
-.pill-label-hover { position: absolute; top: 0; left: 0; z-index: 3; color: var(--hover-text); }
-.pill.is-active { color: var(--pill-bg); background: var(--base); }
+.goo-defs { position: absolute; width: 0; height: 0; overflow: hidden; }
+
+.liquid-nav { display: flex; align-items: center; width: max-content; }
+
+/* 分段控件外观：浅灰托盘 + 白色活动块（rude-mouse-79） */
+.liquid-nav-items {
+  --tab-height: 34px;
+  --nav-padding: 4px;
+  position: relative;
+  display: flex;
+  align-items: center;
+  height: calc(var(--tab-height) + var(--nav-padding) * 2);
+  padding: var(--nav-padding);
+  background: var(--base);
+  border-radius: 10px;
+  box-shadow: 0 0 0 1px rgba(15, 23, 42, 0.06), 0 6px 16px rgba(15, 23, 42, 0.08);
+  overflow: hidden;
+}
+
+/* goo 滤镜层：滑块主体 + 液滴拖尾融合成液体 */
+.liquid-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  filter: url(#liquid-nav-goo);
+}
+
+.liquid-glider {
+  position: absolute;
+  top: var(--nav-padding);
+  left: 0;
+  width: 0;
+  height: var(--tab-height);
+  background: var(--pill-bg);
+  border-radius: 7px;
+  will-change: transform;
+}
+
+.liquid-tail {
+  position: absolute;
+  top: 50%;
+  left: 0;
+  width: 22px;
+  height: 22px;
+  margin: -11px 0 0 -11px;
+  background: var(--pill-bg);
+  border-radius: 50%;
+  will-change: transform;
+}
+
+.liquid-tab {
+  position: relative;
+  z-index: 2;
+  height: var(--tab-height);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 18px;
+  border: 0;
+  background: transparent;
+  color: var(--pill-text);
+  border-radius: 7px;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: color 0.15s ease-in-out;
+}
+
+.liquid-tab:hover { color: var(--hover-text); }
+.liquid-tab.is-active { color: var(--active-text); font-weight: 700; }
+.liquid-tab-label { display: inline-block; will-change: transform; }
+
+.liquid-tab:focus-visible, .mobile-menu-button:focus-visible, .mobile-menu-link:focus-visible { outline: 2px solid var(--hover-text); outline-offset: 2px; }
+
 .mobile-only { display: none; }
-.mobile-menu-button { width: var(--nav-h); height: var(--nav-h); display: none; place-items: center; padding: 0; color: var(--pill-text); background: var(--pill-bg); border: 1px solid var(--base); border-radius: 50%; }
-.mobile-menu-popover { position: absolute; top: calc(var(--nav-h) + 8px); left: 0; min-width: 188px; display: none; gap: 3px; padding: 3px; visibility: hidden; background: var(--base); border-radius: 8px; box-shadow: 0 10px 24px rgba(23, 33, 43, .18); opacity: 0; }
-.mobile-menu-link { min-height: 38px; padding: 0 14px; color: var(--pill-text); background: var(--pill-bg); border: 0; border-radius: 5px; font: inherit; font-size: 13px; font-weight: 700; text-align: left; }
+.mobile-menu-button { width: 42px; height: 42px; display: none; place-items: center; padding: 0; color: var(--pill-text); background: var(--pill-bg); border: 1px solid var(--base); border-radius: 10px; }
+.mobile-menu-popover { position: absolute; top: 50px; left: 0; min-width: 188px; display: none; gap: 3px; padding: 3px; visibility: hidden; background: var(--base); border-radius: 10px; box-shadow: 0 10px 24px rgba(23, 33, 43, .18); opacity: 0; }
+.mobile-menu-link { min-height: 38px; padding: 0 14px; color: var(--pill-text); background: var(--pill-bg); border: 0; border-radius: 7px; font: inherit; font-size: 13px; font-weight: 700; text-align: left; }
 .mobile-menu-link.is-active, .mobile-menu-link:hover { color: var(--hover-text); background: var(--base); }
 
 @media (max-width: 760px) {
   .desktop-only { display: none; }
   .mobile-only { display: grid; }
   .mobile-menu-button, .mobile-menu-popover { display: grid; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .liquid-tab { transition: none; }
 }
