@@ -130,7 +130,8 @@ h1, h2, p { margin-top: 0; } h1 { margin-bottom: 0; color: #17212b; font-size: 2
 .file-drop-input { display: none; }
 .file-drop-surface { position: relative; min-width: 0; isolation: isolate; }
 .file-drop-prompt { width: 100%; min-height: 300px; display: grid; grid-template-columns: 1fr; place-items: center; align-content: center; gap: 10px; padding: 24px; color: var(--accent-green-ink); background: color-mix(in srgb, var(--accent-green-soft) 54%, var(--theme-color)); border: 1px dashed var(--accent-green); border-radius: 6px; text-align: center; transition: background .18s ease, border-color .18s ease, box-shadow .18s ease; }
-.file-drop-prompt:hover:not(:disabled) { background: color-mix(in srgb, var(--accent-green-soft) 78%, var(--theme-color)); border-color: var(--accent-green-hover); }
+.file-drop-prompt:hover:not(:disabled) { background: color-mix(in srgb, var(--accent-green-soft) 78%, var(--theme-color)); border-color: var(--accent-green-hover); box-shadow: 0 8px 22px color-mix(in srgb, var(--accent-green) 20%, transparent); }
+:root[data-theme='light'] .file-drop-prompt:hover:not(:disabled) { background: color-mix(in srgb, var(--accent-green-hover) 26%, var(--theme-color)); border-color: color-mix(in srgb, var(--accent-green-hover) 70%, var(--accent-green)); }
 .file-drop-prompt:focus-visible { outline: 2px solid var(--accent-green); outline-offset: 3px; }
 .file-drop-prompt:disabled { cursor: progress; }
 .file-drop-icon { width: 70px; height: 70px; display: grid; place-items: center; color: var(--accent-green-ink); background: color-mix(in srgb, var(--accent-green-soft) 72%, var(--theme-color)); border: 1px solid var(--accent-green-border); border-radius: 50%; }
