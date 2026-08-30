@@ -1754,7 +1754,7 @@ function VideoStatusPanel({ job, flowSeries, darkMode }: { job: Job | null; flow
   }
   return <section className="panel video-status-panel" aria-label="视频任务状态">
     <div className="panel-heading"><div><p className="section-kicker">视频任务</p><h2>检测状态</h2></div></div>
-    {job ? <div className="video-task-status"><div className="job-status-line"><span className={`job-state ${job.status}`}>{job.status}</span><strong>{job.message}</strong><span>{Math.round(job.progress)}%</span></div><div className="progress-track"><span style={{ width: `${job.progress}%` }} /></div></div> : <EmptyState icon={<Video size={30} />} label="等待选择视频" />}
+    {job ? <div className="video-task-status"><div className="job-status-line"><span className={`job-state ${job.status}`}>{job.status}</span><strong>{job.message}</strong><span>{Math.round(job.progress)}%</span></div><div className="progress-track"><span style={{ width: `${job.progress}%` }} /></div></div> : <VideoIdleCard />}
   </section>;
 }
 
@@ -1897,6 +1897,27 @@ function HistoryDeleteDialog({ entries, busy, error, onCancel, onConfirm }: { en
       <p className="section-kicker">删除确认</p><h3 id="history-delete-title">{label}</h3><p id="history-delete-description">删除后无法恢复。</p>{error && <p className="history-delete-error" role="alert">{error}</p>}
       <div className="history-delete-actions"><button className="text-button" type="button" disabled={busy} onClick={onCancel}>取消</button><button className="command-button danger" type="button" disabled={busy} onClick={onConfirm}>{busy ? <Loader2 className="spin" size={16} aria-hidden="true" /> : <Trash2 size={16} aria-hidden="true" />}确认删除</button></div>
     </section>
+  </div>;
+}
+
+const VIDEO_IDLE_STEPS = [
+  { title: '导入视频', desc: '拖入左侧区域，或点击选择文件' },
+  { title: '开启基准线', desc: '需要统计进出流量时勾选，可调方向与位置' },
+  { title: '查看流量曲线', desc: '处理过程中实时累计，完成后可回放结果' },
+];
+
+function VideoIdleCard() {
+  return <div className="video-idle-card">
+    <div className="video-idle-visual" aria-hidden="true">
+      <svg viewBox="0 0 280 96" role="presentation">
+        <path className="vi-curve vi-curve-out" d="M0 84 C 30 80, 56 66, 84 70 S 140 82 168 72 S 226 48 252 52 S 272 44 280 40" />
+        <path className="vi-curve vi-curve-in" d="M0 78 C 24 70, 40 52, 64 56 S 112 70 136 58 S 190 26 216 34 S 260 22 280 18" />
+      </svg>
+      <span className="video-idle-status"><i />监控待机</span>
+    </div>
+    <ol className="video-idle-steps">
+      {VIDEO_IDLE_STEPS.map((step, index) => <li key={step.title}><b>{index + 1}</b><div><strong>{step.title}</strong><small>{step.desc}</small></div></li>)}
+    </ol>
   </div>;
 }
 

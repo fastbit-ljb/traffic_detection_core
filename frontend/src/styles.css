@@ -301,3 +301,29 @@ h1, h2, p { margin-top: 0; } h1 { margin-bottom: 0; color: #17212b; font-size: 2
 .video-result-actions .text-button { display: inline-flex; align-items: center; gap: 6px; }
 .video-result-hint { color: #687786; font-size: 12px; }
 :root[data-theme='dark'] .video-result-hint { color: #aebbc4; }
+
+/* 视频任务待机引导卡 */
+.video-idle-card { display: grid; gap: 12px; padding: 14px; background: #f8fafb; border: 1px solid #e1e7eb; border-radius: 6px; }
+.video-idle-visual { position: relative; padding: 10px 10px 8px; background: #ffffff; border: 1px solid #e5e9ed; border-radius: 5px; }
+.video-idle-visual svg { display: block; width: 100%; height: auto; }
+.vi-curve { fill: none; stroke-width: 2; stroke-linecap: round; stroke-dasharray: 6 6; opacity: .55; animation: vi-dash 26s linear infinite; }
+.vi-curve-in { stroke: #0f766e; }
+.vi-curve-out { stroke: #dc2626; opacity: .4; }
+@keyframes vi-dash { to { stroke-dashoffset: -600; } }
+.video-idle-status { position: absolute; top: 10px; left: 10px; display: inline-flex; align-items: center; gap: 6px; padding: 3px 8px; color: #52616e; background: #f8fafb; border: 1px solid #e1e7eb; border-radius: 999px; font-size: 11px; font-weight: 600; }
+.video-idle-status i { width: 6px; height: 6px; background: #0f766e; border-radius: 50%; animation: bf-live-pulse 2s ease-in-out infinite; }
+.video-idle-steps { display: grid; gap: 9px; margin: 0; padding: 0; list-style: none; }
+.video-idle-steps li { display: flex; align-items: flex-start; gap: 9px; }
+.video-idle-steps b { flex: 0 0 auto; width: 18px; height: 18px; display: grid; place-items: center; margin-top: 1px; color: #0f6761; background: #e8f3f2; border: 1px solid #b8d7d4; border-radius: 50%; font-size: 11px; }
+.video-idle-steps strong { display: block; color: #1f2937; font-size: 13px; }
+.video-idle-steps small { display: block; margin-top: 2px; color: #687786; font-size: 12px; }
+:root[data-theme='dark'] .video-idle-card { background: #172129; border-color: #30404b; }
+:root[data-theme='dark'] .video-idle-visual { background: #10161c; border-color: #30404b; }
+:root[data-theme='dark'] .vi-curve-in { stroke: #62c5bb; }
+:root[data-theme='dark'] .vi-curve-out { stroke: #e08585; }
+:root[data-theme='dark'] .video-idle-status { color: #aebbc4; background: #172129; border-color: #30404b; }
+:root[data-theme='dark'] .video-idle-status i { background: #62c5bb; }
+:root[data-theme='dark'] .video-idle-steps b { color: #bceae5; background: #15363a; border-color: #397b78; }
+:root[data-theme='dark'] .video-idle-steps strong { color: #edf3f6; }
+:root[data-theme='dark'] .video-idle-steps small { color: #aebbc4; }
+@media (prefers-reduced-motion: reduce) { .vi-curve { animation: none; } }
