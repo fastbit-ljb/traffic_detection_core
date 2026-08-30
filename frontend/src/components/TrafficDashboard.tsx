@@ -1069,9 +1069,7 @@ export function TrafficDashboard() {
           <h1>道路车辆与行人检测系统</h1>
         </div>
         <div className="topbar-actions">
-          <button className="icon-button theme-toggle" type="button" title={theme === 'light' ? '切换深色主题' : '切换浅色主题'} aria-label={theme === 'light' ? '切换深色主题' : '切换浅色主题'} onClick={toggleTheme}>
-            {theme === 'light' ? <Moon size={17} aria-hidden="true" /> : <Sun size={17} aria-hidden="true" />}
-          </button>
+          <ThemeToggleDayNight dark={theme === 'dark'} onToggle={toggleTheme} />
           <button className="icon-button" type="button" title="刷新项目数据" onClick={() => void refreshResources()}>
             <RefreshCw size={17} aria-hidden="true" />
           </button>
@@ -1808,6 +1806,37 @@ function DatasetRow({ dataset, selected, onSelect }: { dataset: Dataset; selecte
 function InferenceDeviceSwitch({ status, busy, onSelect }: { status: InferenceDeviceStatus | null; busy: boolean; onSelect: (device: 'cpu' | 'cuda') => void }) {
   if (!status) return null;
   return <div className="model-device-options"><GooeyDeviceSwitch activeId={status.active_device} ariaLabel="推理设备" onSelect={(device) => void onSelect(device as 'cpu' | 'cuda')} items={[{ id: 'cpu', label: 'CPU', icon: <Cpu size={15} aria-hidden="true" />, disabled: busy }, { id: 'cuda', label: 'CUDA', icon: <Zap size={15} aria-hidden="true" />, disabled: busy || !status.cuda_available, title: status.cuda_available ? '使用 CUDA 加速推理' : CUDA_UNAVAILABLE_MESSAGE }]} /></div>;
+}
+
+const DAYNIGHT_STARS = [
+  'star--big star--a', 'star--big star--b', 'star--big star--c', 'star--big star--d',
+  'star--small star--e', 'star--small star--f', 'star--small star--g', 'star--small star--h',
+];
+
+function ThemeToggleDayNight({ dark, onToggle }: { dark: boolean; onToggle: (event: ReactMouseEvent<HTMLButtonElement>) => void }) {
+  const [animating, setAnimating] = useState(false);
+  const timerRef = useRef<number | undefined>(undefined);
+  useEffect(() => () => window.clearTimeout(timerRef.current), []);
+  const handleClick = (event: ReactMouseEvent<HTMLButtonElement>) => {
+    if (animating) return;
+    setAnimating(true);
+    onToggle(event);
+    window.clearTimeout(timerRef.current);
+    timerRef.current = window.setTimeout(() => setAnimating(false), 1500);
+  };
+  return (
+    <button type="button" className={`daynight-toggle${dark ? ' dark' : ''}${animating ? ' is-animating' : ''}`} role="switch" aria-checked={dark} aria-label={dark ? '切换浅色主题' : '切换深色主题'} title={dark ? '切换浅色主题' : '切换深色主题'} onClick={handleClick}>
+      <span className="daynight-container">
+        <span className="daynight-clouds" aria-hidden="true" />
+        <span className="daynight-stars" aria-hidden="true">
+          <span className="star-field">
+            {DAYNIGHT_STARS.map((starClass) => <i key={starClass} className={`star ${starClass}`} />)}
+          </span>
+        </span>
+        <span className="daynight-sun" aria-hidden="true" />
+      </span>
+    </button>
+  );
 }
 
 function ModelManagementCard({ models, deviceStatus, uploadBusy, deviceBusy, onModelUpload, onUploadReject, onActivate, onDeviceSelect, baselineConfig, showBaselineControls, onBaselineChange }: {
