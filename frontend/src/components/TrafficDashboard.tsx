@@ -801,13 +801,21 @@ export function TrafficDashboard() {
     setImagePreviewUrl(null);
   }, []);
 
+  const clearVideoJob = useCallback(() => {
+    videoFlowJobRef.current = null;
+    videoFlowLastRef.current = 0;
+    setVideoFlowSeries([]);
+    setVideoJob(null);
+  }, []);
+
   const changeActiveView = useCallback((nextView: ActiveView) => {
     if (nextView === activeView) return;
     if (activeView === 'live') stopCamera();
     if (activeView === 'image') clearImageResult();
+    if (activeView === 'video' && videoJob && ['completed', 'failed'].includes(videoJob.status)) clearVideoJob();
     setMessage(null);
     setActiveView(nextView);
-  }, [activeView, clearImageResult, stopCamera]);
+  }, [activeView, clearImageResult, clearVideoJob, stopCamera, videoJob]);
 
   const handleLogout = useCallback(() => {
     stopCamera();
@@ -1127,7 +1135,7 @@ export function TrafficDashboard() {
                   busy={busyOperation === 'video'}
                   className="video-drop-surface"
                 >
-                  {videoJob ? <VideoJobPanel job={videoJob} url={processedVideoUrl} /> : null}
+                  {videoJob ? <VideoJobPanel job={videoJob} url={processedVideoUrl} onNewVideo={clearVideoJob} /> : null}
                 </FileDropSurface>
               </section>
               <VideoStatusPanel job={videoJob} flowSeries={videoFlowSeries} darkMode={theme === 'dark'} />
@@ -1721,16 +1729,20 @@ function VideoProcessingStage({ job }: { job: Job }) {
   </div>;
 }
 
-function VideoJobPanel({ job, url }: { job: Job; url: string | null }) {
+function VideoJobPanel({ job, url, onNewVideo }: { job: Job; url: string | null; onNewVideo?: () => void }) {
   const [playbackError, setPlaybackError] = useState(false);
   const isProcessing = ['queued', 'running'].includes(job.status);
   const videoPlayer = job.status === 'completed' && url && !playbackError
     ? <div className="processed-video-stage"><video key={url} className="processed-video" src={url} controls autoPlay muted playsInline preload="auto" onError={() => setPlaybackError(true)} /></div>
     : isProcessing ? <VideoProcessingStage job={job} /> : <VideoUploadStage label={playbackError ? '处理视频无法在当前浏览器中播放' : job.message} />;
+  const finished = !isProcessing;
 
   useEffect(() => setPlaybackError(false), [url]);
 
-  return videoPlayer;
+  return <div className="video-job-panel">
+    {videoPlayer}
+    {finished && onNewVideo && <div className="video-result-actions"><button className="text-button" type="button" onClick={onNewVideo}><UploadCloud size={15} aria-hidden="true" />上传新视频</button><span className="video-result-hint">也可以直接拖入新视频替换</span></div>}
+  </div>;
 }
 
 function VideoStatusPanel({ job, flowSeries, darkMode }: { job: Job | null; flowSeries: FlowSample[]; darkMode: boolean }) {

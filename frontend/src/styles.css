@@ -297,3 +297,7 @@ h1, h2, p { margin-top: 0; } h1 { margin-bottom: 0; color: #17212b; font-size: 2
 :root[data-theme='dark'] .bf-stat small, :root[data-theme='dark'] .bf-stat > span { color: #aebbc4; }
 :root[data-theme='dark'] .bf-stat strong { color: #edf3f6; }
 :root[data-theme='dark'] .bf-empty { color: #aebbc4; }
+.video-result-actions { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 10px; }
+.video-result-actions .text-button { display: inline-flex; align-items: center; gap: 6px; }
+.video-result-hint { color: #687786; font-size: 12px; }
+:root[data-theme='dark'] .video-result-hint { color: #aebbc4; }
