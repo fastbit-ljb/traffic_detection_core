@@ -1825,6 +1825,7 @@ function ModelManagementCard({ models, deviceStatus, uploadBusy, deviceBusy, onM
   onBaselineChange: (config: BaselineConfig) => void;
 }) {
   const activeModel = models.find((model) => model.is_active);
+  const orderedModels = useMemo(() => [...models].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()), [models]);
   return <section className="panel model-management-card" aria-label="模型管理">
     <div className="panel-heading"><div><p className="section-kicker">推理资源</p><h2>模型选择</h2></div></div>
     <FileDropSurface accept={MODEL_ACCEPT} label="拖放 PT 权重" hint="或点击选择模型文件" busyLabel="正在上传权重" icon={<Upload size={27} aria-hidden="true" />} onFile={onModelUpload} onReject={onUploadReject} busy={uploadBusy} compact />
@@ -1832,7 +1833,7 @@ function ModelManagementCard({ models, deviceStatus, uploadBusy, deviceBusy, onM
     <div className="field-label model-select-field">
       <span>当前模型</span>
       <div className="model-static-list" role="radiogroup" aria-label="当前模型">
-        {models.map((model) => <button key={model.id} type="button" role="radio" aria-checked={model.is_active} className={model.is_active ? 'model-static-item selected' : 'model-static-item'} disabled={uploadBusy} onClick={() => void onActivate(String(model.id))}><span className="model-static-info"><strong>{model.name}</strong><small>{model.source === 'official' ? '官方预训练' : model.source === 'upload' ? '自定义权重' : model.source}</small></span><span className={model.is_active ? 'model-static-check checked' : 'model-static-check'} aria-hidden="true">{model.is_active && <Check size={12} strokeWidth={3} />}</span></button>)}
+        {orderedModels.map((model) => <button key={model.id} type="button" role="radio" aria-checked={model.is_active} className={model.is_active ? 'model-static-item selected' : 'model-static-item'} disabled={uploadBusy} onClick={() => void onActivate(String(model.id))}><span className="model-static-info"><strong>{model.name}</strong><small>{model.source === 'official' ? '官方预训练' : model.source === 'upload' ? '自定义权重' : model.source}</small></span><span className={model.is_active ? 'model-static-check checked' : 'model-static-check'} aria-hidden="true">{model.is_active && <Check size={12} strokeWidth={3} />}</span></button>)}
         {!models.length && <p className="model-static-empty">暂无可选模型</p>}
       </div>
     </div>
