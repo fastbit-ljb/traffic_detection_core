@@ -364,15 +364,18 @@ h1, h2, p { margin-top: 0; } h1 { margin-bottom: 0; color: #17212b; font-size: 2
 
 /* 常驻展开的模型列表 */
 .model-static-list { display: grid; gap: 8px; }
-.model-static-item { width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 12px; text-align: left; background: #ffffff; border: 1px solid #e1e7eb; border-radius: 6px; cursor: pointer; }
+.model-static-item { width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 12px; text-align: left; background: #ffffff; border: 1px solid #e1e7eb; border-radius: 6px; cursor: pointer; transition: background .45s ease, border-color .45s ease; }
 .model-static-item:hover { border-color: #8dc9c3; }
-.model-static-item.selected { background: #ecf7f5; border-color: #0f766e; }
+.model-static-item.selected { background: #ecf7f5; border-color: #0f766e; transition-duration: .2s, .2s; }
 .model-static-item:disabled { opacity: .55; cursor: wait; }
 .model-static-info { min-width: 0; }
 .model-static-info strong { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #1f2937; font-size: 14px; }
 .model-static-info small { display: block; margin-top: 3px; color: #6d7c89; font-size: 12px; }
-.model-static-check { flex: 0 0 auto; width: 19px; height: 19px; display: grid; place-items: center; color: transparent; background: #f1f4f6; border: 1px solid #cbd5db; border-radius: 50%; }
-.model-static-check.checked { color: #ffffff; background: #0f766e; border-color: #0f766e; }
+.model-static-check { flex: 0 0 auto; width: 20px; height: 20px; display: grid; place-items: center; background: transparent; border: 2px solid #b6c2cc; border-radius: 5px; transition: background .45s ease, border-color .45s ease, transform .45s ease; }
+.model-static-check svg { width: 13px; height: 13px; fill: none; stroke: #ffffff; stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; stroke-dasharray: 16; stroke-dashoffset: 16; transition: stroke-dashoffset .3s ease; }
+.model-static-check.checked { background: #0f766e; border-color: #0f766e; transform: scale(1.06); transition-duration: .2s, .2s, .2s; }
+.model-static-item.selected .model-static-check svg { stroke-dashoffset: 0; transition-delay: .08s; }
+.model-static-item:active .model-static-check { transform: scale(.88); }
 .model-static-empty { margin: 0; color: #687786; font-size: 12px; }
 :root[data-theme='dark'] .model-static-item { background: #172129; border-color: #30404b; }
 :root[data-theme='dark'] .model-static-item:hover { border-color: #5ca7a1; }
@@ -380,5 +383,5 @@ h1, h2, p { margin-top: 0; } h1 { margin-bottom: 0; color: #17212b; font-size: 2
 :root[data-theme='dark'] .model-static-info strong { color: #edf3f6; }
 :root[data-theme='dark'] .model-static-info small { color: #aebbc4; }
 :root[data-theme='dark'] .model-static-check { background: #10161c; border-color: #3a4853; }
-:root[data-theme='dark'] .model-static-check.checked { color: #06211f; background: #62c5bb; border-color: #62c5bb; }
+:root[data-theme='dark'] .model-static-check.checked { background: #62c5bb; border-color: #62c5bb; }
 :root[data-theme='dark'] .model-static-empty { color: #aebbc4; }

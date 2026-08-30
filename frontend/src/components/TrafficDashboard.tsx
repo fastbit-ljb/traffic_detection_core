@@ -22,7 +22,6 @@ import {
   ArrowUp,
   Camera,
   Car,
-  Check,
   ChevronRight,
   ChevronsLeft,
   ChevronsRight,
@@ -1833,7 +1832,7 @@ function ModelManagementCard({ models, deviceStatus, uploadBusy, deviceBusy, onM
     <div className="field-label model-select-field">
       <span>当前模型</span>
       <div className="model-static-list" role="radiogroup" aria-label="当前模型">
-        {orderedModels.map((model) => <button key={model.id} type="button" role="radio" aria-checked={model.is_active} className={model.is_active ? 'model-static-item selected' : 'model-static-item'} disabled={uploadBusy} onClick={() => void onActivate(String(model.id))}><span className="model-static-info"><strong>{model.name}</strong><small>{model.source === 'official' ? '官方预训练' : model.source === 'upload' ? '自定义权重' : model.source}</small></span><span className={model.is_active ? 'model-static-check checked' : 'model-static-check'} aria-hidden="true">{model.is_active && <Check size={12} strokeWidth={3} />}</span></button>)}
+        {orderedModels.map((model) => <button key={model.id} type="button" role="radio" aria-checked={model.is_active} className={model.is_active ? 'model-static-item selected' : 'model-static-item'} disabled={uploadBusy} onClick={() => void onActivate(String(model.id))}><span className="model-static-info"><strong>{model.name}</strong><small>{model.source === 'official' ? '官方预训练' : model.source === 'upload' ? '自定义权重' : model.source}</small></span><span className={model.is_active ? 'model-static-check checked' : 'model-static-check'} aria-hidden="true"><svg viewBox="0 0 14 14" focusable="false"><path d="M2.5 7.5 L5.8 10.5 L11.5 3.5" /></svg></span></button>)}
         {!models.length && <p className="model-static-empty">暂无可选模型</p>}
       </div>
     </div>
