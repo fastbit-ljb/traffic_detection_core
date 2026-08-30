@@ -1,14 +1,19 @@
-import { useCallback, useEffect, useRef, useState, type CSSProperties, type DragEvent as ReactDragEvent, type FormEvent, type MouseEvent as ReactMouseEvent } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type DragEvent as ReactDragEvent, type FormEvent, type MouseEvent as ReactMouseEvent } from 'react';
 import { flushSync } from 'react-dom';
-import { Bar } from 'react-chartjs-2';
+import { Bar, Line } from 'react-chartjs-2';
 import {
   BarElement,
   CategoryScale,
   Chart as ChartJS,
+  Filler,
   Legend,
   LinearScale,
+  LineElement,
+  PointElement,
   Tooltip,
   type ChartData,
+  type ScriptableContext,
+  type TooltipItem,
 } from 'chart.js';
 import {
   ArrowDown,
@@ -57,7 +62,7 @@ import {
 import { ElasticSlider } from './ui/ElasticSlider';
 import { GooeyDeviceSwitch } from './ui/GooeyDeviceSwitch';
 
-ChartJS.register(CategoryScale, LinearScale, BarElement, Tooltip, Legend);
+ChartJS.register(CategoryScale, LinearScale, BarElement, LineElement, PointElement, Filler, Tooltip, Legend);
 
 const configuredApiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? import.meta.env.VITE_API_URL;
 const API_BASE_URL = configuredApiBaseUrl
@@ -231,6 +236,22 @@ const normalizeFlowCounts = (counts?: Partial<FlowCounts> | null): FlowCounts =>
   entry: normalizeCounts(counts?.entry),
   exit: normalizeCounts(counts?.exit),
 });
+type FlowSample = { t: number; entry: number; exit: number };
+const MAX_FLOW_SAMPLES = 240;
+const flowTotals = (counts: FlowCounts) => ({
+  entry: TARGETS.reduce((total, target) => total + counts.entry[target.key], 0),
+  exit: TARGETS.reduce((total, target) => total + counts.exit[target.key], 0),
+});
+const appendFlowSample = (series: FlowSample[], entry: number, exit: number, at: number, minGapMs: number) => {
+  const last = series[series.length - 1];
+  if (last && at - last.t < minGapMs) return series;
+  const next = [...series, { t: at, entry, exit }];
+  return next.length > MAX_FLOW_SAMPLES ? next.slice(next.length - MAX_FLOW_SAMPLES) : next;
+};
+const formatFlowClock = (elapsedMs: number) => {
+  const totalSeconds = Math.max(0, Math.round(elapsedMs / 1000));
+  return `${String(Math.floor(totalSeconds / 60)).padStart(2, '0')}:${String(totalSeconds % 60).padStart(2, '0')}`;
+};
 const targetByKey = (key: TargetKey) => TARGETS.find((target) => target.key === key)!;
 
 type ViewTransitionDocument = Document & {
@@ -287,6 +308,10 @@ export function TrafficDashboard() {
   const [counts, setCounts] = useState<TargetCounts>(emptyCounts);
   const [liveResult, setLiveResult] = useState<DetectionResult | null>(null);
   const [liveFlowCounts, setLiveFlowCounts] = useState<FlowCounts>(emptyFlowCounts);
+  const [liveFlowSeries, setLiveFlowSeries] = useState<FlowSample[]>([]);
+  const [videoFlowSeries, setVideoFlowSeries] = useState<FlowSample[]>([]);
+  const videoFlowJobRef = useRef<string | null>(null);
+  const videoFlowLastRef = useRef(0);
   const [baselineConfig, setBaselineConfig] = useState<BaselineConfig>({ enabled: false, orientation: 'horizontal', direction: 'down', position: 0.5 });
   const [baselineSession, setBaselineSession] = useState(0);
   const [imageResult, setImageResult] = useState<DetectionResult | null>(null);
@@ -401,6 +426,7 @@ export function TrafficDashboard() {
     setLiveResult(null);
     setCounts(emptyCounts());
     setLiveFlowCounts(emptyFlowCounts());
+    setLiveFlowSeries([]);
     const overlay = liveOverlayCanvasRef.current;
     overlay?.getContext('2d')?.clearRect(0, 0, overlay.width, overlay.height);
   }, []);
@@ -625,6 +651,22 @@ export function TrafficDashboard() {
   }, [videoJob, refreshResources]);
 
   useEffect(() => {
+    if (!videoJob) return;
+    if (videoFlowJobRef.current !== videoJob.id) {
+      videoFlowJobRef.current = videoJob.id;
+      videoFlowLastRef.current = 0;
+      setVideoFlowSeries([]);
+    }
+    const finished = videoJob.status === 'completed' || videoJob.status === 'failed';
+    if (!finished && videoJob.status !== 'running') return;
+    const now = Date.now();
+    if (!finished && now - videoFlowLastRef.current < 900) return;
+    videoFlowLastRef.current = now;
+    const jobTotals = flowTotals(normalizeFlowCounts(videoJob.result?.flow_counts ?? videoJob.flow_counts));
+    setVideoFlowSeries((series) => appendFlowSample(series, jobTotals.entry, jobTotals.exit, now, 0));
+  }, [videoJob]);
+
+  useEffect(() => {
     const interval = window.setInterval(() => {
       if (activeView === 'data') void refreshResources();
     }, 3000);
@@ -668,7 +710,10 @@ export function TrafficDashboard() {
       const result = await submitImage(blob, 'camera-frame.jpg', 'camera', false, baselineConfig, baselineSession);
       if (!cameraActiveRef.current || cameraSessionRef.current !== sessionId) return;
       applyLiveResult(result);
-      setLiveFlowCounts(normalizeFlowCounts(result.flow_counts));
+      const flowCounts = normalizeFlowCounts(result.flow_counts);
+      setLiveFlowCounts(flowCounts);
+      const cameraTotals = flowTotals(flowCounts);
+      setLiveFlowSeries((series) => appendFlowSample(series, cameraTotals.entry, cameraTotals.exit, Date.now(), 400));
       setMessage(null);
     } catch (error) {
       if (cameraActiveRef.current && cameraSessionRef.current === sessionId) {
@@ -719,6 +764,7 @@ export function TrafficDashboard() {
       }
       setBaselineSession((current) => current + 1);
       setLiveFlowCounts(emptyFlowCounts());
+      setLiveFlowSeries([]);
       cameraActiveRef.current = true;
       setCameraLive(true);
       setMessage(null);
@@ -831,6 +877,7 @@ export function TrafficDashboard() {
     setBaselineConfig(nextConfig);
     setBaselineSession((current) => current + 1);
     setLiveFlowCounts(emptyFlowCounts());
+    setLiveFlowSeries([]);
   };
 
   const onDatasetUpload = async (file: File) => {
@@ -966,6 +1013,7 @@ export function TrafficDashboard() {
   // Use the local source image whenever available so the browser can render
   // Chinese labels itself, even while an older backend is still being restarted.
   const imageUrl = imagePreviewUrl ?? annotatedImageUrl(imageResult?.annotated_image_path);
+  const liveFlowTotals = flowTotals(liveFlowCounts);
   const processedVideoUrl = videoUrl(videoJob?.result?.output_path, videoJob?.id);
 
   if (!authReady) return <div className="auth-screen"><section className="auth-loading"><p className="eyebrow">YOLOV8 ROAD OBJECT DETECTION</p><h1>正在检查登录状态</h1></section></div>;
@@ -1036,7 +1084,8 @@ export function TrafficDashboard() {
                 <canvas ref={canvasRef} className="hidden-canvas" />
               </section>
               <div className="live-stat-stack">
-                <MetricsPanel counts={counts} result={liveResult} chartData={chartData} darkMode={theme === 'dark'} flowCounts={baselineConfig.enabled ? liveFlowCounts : undefined} />
+                <MetricsPanel counts={counts} result={liveResult} chartData={chartData} darkMode={theme === 'dark'} />
+                {baselineConfig.enabled && (liveResult || liveFlowSeries.length > 0) && <BaselineFlowPanel series={liveFlowSeries} entryTotal={liveFlowTotals.entry} exitTotal={liveFlowTotals.exit} live />}
               </div>
             </div>
           )}
@@ -1081,7 +1130,7 @@ export function TrafficDashboard() {
                   {videoJob ? <VideoJobPanel job={videoJob} url={processedVideoUrl} /> : null}
                 </FileDropSurface>
               </section>
-              <VideoStatusPanel job={videoJob} darkMode={theme === 'dark'} />
+              <VideoStatusPanel job={videoJob} flowSeries={videoFlowSeries} />
             </div>
           )}
 
@@ -1497,35 +1546,86 @@ function BaselineControls({ config, onChange, compact = false }: { config: Basel
   </div>;
 }
 
-function MetricsPanel({ counts, result, chartData, darkMode, flowCounts }: { counts: TargetCounts; result: DetectionResult | null; chartData: ChartData<'bar', number[], string>; darkMode: boolean; flowCounts?: FlowCounts }) {
+function MetricsPanel({ counts, result, chartData, darkMode }: { counts: TargetCounts; result: DetectionResult | null; chartData: ChartData<'bar', number[], string>; darkMode: boolean }) {
   const chartColor = darkMode ? '#d9e2e8' : '#53616e';
-  return <section className="panel metrics-panel" aria-label="当前目标统计"><div className="panel-heading"><div><p className="section-kicker">当前帧</p><h2>目标数量</h2></div><span className="frame-total">{result?.total_vehicles ?? 0} 个目标</span></div><div className="stat-strip">{TARGETS.map((target) => <span key={target.key}><small>{target.label}</small><strong>{counts[target.key]}</strong></span>)}</div><div className="chart-area"><Bar data={chartData} options={{ responsive: true, maintainAspectRatio: false, animation: false, plugins: { legend: { display: false }, tooltip: { displayColors: false } }, scales: { x: { grid: { display: false }, border: { display: false }, ticks: { color: chartColor } }, y: { beginAtZero: true, ticks: { precision: 0, color: chartColor }, border: { display: false } } } }} /></div>{flowCounts && <div className="inline-flow-summary" aria-label="进出统计"><div className="flow-strip">{TARGETS.map((target) => <span key={target.key}><b>{target.label}</b><small>入</small><strong>{flowCounts.entry[target.key]}</strong><small>出</small><strong>{flowCounts.exit[target.key]}</strong></span>)}</div></div>}<div className="last-update"><Clock3 size={15} aria-hidden="true" /><span>{result ? `${formatTime(result.detection_timestamp)} · ${(result.processing_time * 1000).toFixed(0)} ms` : '等待检测数据'}</span></div></section>;
+  return <section className="panel metrics-panel" aria-label="当前目标统计"><div className="panel-heading"><div><p className="section-kicker">当前帧</p><h2>目标数量</h2></div><span className="frame-total">{result?.total_vehicles ?? 0} 个目标</span></div><div className="stat-strip">{TARGETS.map((target) => <span key={target.key}><small>{target.label}</small><strong>{counts[target.key]}</strong></span>)}</div><div className="chart-area"><Bar data={chartData} options={{ responsive: true, maintainAspectRatio: false, animation: false, plugins: { legend: { display: false }, tooltip: { displayColors: false } }, scales: { x: { grid: { display: false }, border: { display: false }, ticks: { color: chartColor } }, y: { beginAtZero: true, ticks: { precision: 0, color: chartColor }, border: { display: false } } } }} /></div><div className="last-update"><Clock3 size={15} aria-hidden="true" /><span>{result ? `${formatTime(result.detection_timestamp)} · ${(result.processing_time * 1000).toFixed(0)} ms` : '等待检测数据'}</span></div></section>;
 }
 
-function FlowMetricsPanel({ flowCounts, embedded = false, darkMode }: { flowCounts: FlowCounts; embedded?: boolean; darkMode: boolean }) {
-  const entryTotal = TARGETS.reduce((total, target) => total + flowCounts.entry[target.key], 0);
-  const exitTotal = TARGETS.reduce((total, target) => total + flowCounts.exit[target.key], 0);
-  const chartColor = darkMode ? '#d9e2e8' : '#53616e';
-  const flowChartData: ChartData<'bar', number[], string> = {
-    labels: TARGETS.map((target) => target.label),
+const FLOW_MONO = 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace';
+const flowAreaGradient = (context: ScriptableContext<'line'>, rgb: string) => {
+  const area = context.chart.chartArea;
+  if (!area) return 'transparent';
+  const gradient = context.chart.ctx.createLinearGradient(0, area.top, 0, area.bottom);
+  gradient.addColorStop(0, `rgba(${rgb}, .26)`);
+  gradient.addColorStop(1, `rgba(${rgb}, 0)`);
+  return gradient;
+};
+
+function BaselineFlowPanel({ series, entryTotal, exitTotal, live = false }: { series: FlowSample[]; entryTotal: number; exitTotal: number; live?: boolean }) {
+  const net = entryTotal - exitTotal;
+  const origin = series[0]?.t ?? 0;
+  const rateDelta = useMemo(() => {
+    if (series.length < 4) return null;
+    const first = series[0];
+    const middle = series[Math.floor(series.length / 2)];
+    const last = series[series.length - 1];
+    const perMinute = (from: FlowSample, to: FlowSample, key: 'entry' | 'exit') => (to[key] - from[key]) / Math.max(1 / 60, (to.t - from.t) / 60000);
+    const percent = (earlier: number, recent: number) => (earlier < 0.5 ? null : Math.round(((recent - earlier) / earlier) * 100));
+    return {
+      entry: percent(perMinute(first, middle, 'entry'), perMinute(middle, last, 'entry')),
+      exit: percent(perMinute(first, middle, 'exit'), perMinute(middle, last, 'exit')),
+    };
+  }, [series]);
+  const deltaLabel = (delta: number | null | undefined) => (delta === null || delta === undefined ? '采样中' : `${delta >= 0 ? '+' : ''}${delta}% vs 前半段`);
+  const flowChartData: ChartData<'line', number[], string> = {
+    labels: series.map((sample) => formatFlowClock(sample.t - origin)),
     datasets: [
-      { label: '入库/入区', data: TARGETS.map((target) => flowCounts.entry[target.key]), backgroundColor: darkMode ? '#21633b' : '#9acfab', borderRadius: 4, barThickness: 20 },
-      { label: '出库/出区', data: TARGETS.map((target) => flowCounts.exit[target.key]), backgroundColor: '#dc2626', borderRadius: 4, barThickness: 20 },
+      { label: 'In', data: series.map((sample) => sample.entry), borderColor: '#c9f04d', borderWidth: 2, tension: .45, fill: true, pointRadius: 0, pointHoverRadius: 4, pointHoverBorderWidth: 0, pointHoverBackgroundColor: '#c9f04d', backgroundColor: (context) => flowAreaGradient(context, '201, 240, 77') },
+      { label: 'Out', data: series.map((sample) => sample.exit), borderColor: '#4fd6e8', borderWidth: 2, tension: .45, fill: true, pointRadius: 0, pointHoverRadius: 4, pointHoverBorderWidth: 0, pointHoverBackgroundColor: '#4fd6e8', backgroundColor: (context) => flowAreaGradient(context, '79, 214, 232') },
     ],
   };
-  return (
-    <section className={embedded ? 'flow-panel embedded' : 'panel flow-panel'} aria-label="进出统计">
-      <div className="panel-heading"><div><p className="section-kicker">跨线累计</p><h2>进出统计</h2></div><span className="frame-total">入 {entryTotal} · 出 {exitTotal}</span></div>
-      <div className="flow-strip">{TARGETS.map((target) => <span key={target.key}><b>{target.label}</b><small>入</small><strong>{flowCounts.entry[target.key]}</strong><small>出</small><strong>{flowCounts.exit[target.key]}</strong></span>)}</div>
-      <div className="chart-area"><Bar data={flowChartData} options={{
-        responsive: true,
-        maintainAspectRatio: false,
-        animation: false,
-        plugins: { legend: { position: 'top', labels: { boxWidth: 10, usePointStyle: true, color: chartColor } }, tooltip: { displayColors: true } },
-        scales: { x: { grid: { display: false }, border: { display: false }, ticks: { color: chartColor } }, y: { beginAtZero: true, ticks: { precision: 0, color: chartColor }, border: { display: false } }, },
-      }} /></div>
-    </section>
-  );
+  return <section className="baseline-flow-panel" aria-label="进出流量监控">
+    <header className="bf-header"><span>BASELINE FLOW · 进出流量</span><span className={live ? 'bf-live-tag' : 'bf-live-tag idle'}><i aria-hidden="true" />{live ? 'MONITOR' : 'REPORT'}</span></header>
+    <div className="bf-stats">
+      <div className="bf-stat"><small>IN / 进</small><strong>{entryTotal}<em>veh</em></strong><span>{deltaLabel(rateDelta?.entry)}</span></div>
+      <div className="bf-stat out"><small>OUT / 出</small><strong>{exitTotal}<em>veh</em></strong><span>{deltaLabel(rateDelta?.exit)}</span></div>
+      <div className="bf-stat net"><small>NET</small><strong>{net >= 0 ? '+' : ''}{net}</strong><span>{net > 0 ? 'crossing baseline' : net < 0 ? 'leaving baseline' : 'at baseline'}</span></div>
+    </div>
+    <div className="bf-chart">
+      {series.length >= 2
+        ? <Line data={flowChartData} options={{
+          responsive: true,
+          maintainAspectRatio: false,
+          animation: false,
+          interaction: { mode: 'index', intersect: false },
+          plugins: {
+            legend: { display: false },
+            tooltip: {
+              displayColors: true,
+              usePointStyle: true,
+              boxWidth: 7,
+              boxHeight: 7,
+              boxPadding: 4,
+              backgroundColor: '#111a14',
+              borderColor: 'rgba(255, 255, 255, .18)',
+              borderWidth: 1,
+              cornerRadius: 8,
+              padding: 10,
+              titleColor: '#9db0a3',
+              bodyColor: '#e8f1ea',
+              titleFont: { family: FLOW_MONO, size: 11 },
+              bodyFont: { family: FLOW_MONO, size: 12 },
+              callbacks: { label: (item: TooltipItem<'line'>) => ` ${item.dataset.label}  ${item.parsed.y}` },
+            },
+          },
+          scales: {
+            x: { grid: { display: false }, border: { color: 'rgba(255, 255, 255, .16)' }, ticks: { color: '#5d6f64', font: { family: FLOW_MONO, size: 10 }, maxTicksLimit: 9, maxRotation: 0 } },
+            y: { beginAtZero: true, grid: { color: 'rgba(255, 255, 255, .07)' }, border: { display: false }, ticks: { color: '#5d6f64', font: { family: FLOW_MONO, size: 10 }, precision: 0, maxTicksLimit: 5 } },
+          },
+        }} />
+        : <div className="bf-empty">等待跨线数据…</div>}
+    </div>
+  </section>;
 }
 
 const fileMatchesAccept = (file: File, accept: string) => accept.split(',').some((rawToken) => {
@@ -1632,9 +1732,12 @@ function VideoJobPanel({ job, url }: { job: Job; url: string | null }) {
   return videoPlayer;
 }
 
-function VideoStatusPanel({ job, darkMode }: { job: Job | null; darkMode: boolean }) {
+function VideoStatusPanel({ job, flowSeries }: { job: Job | null; flowSeries: FlowSample[] }) {
   const hasBaseline = job?.payload.baseline_enabled === 'true';
-  if (job && hasBaseline) return <FlowMetricsPanel flowCounts={normalizeFlowCounts(job.result?.flow_counts ?? job.flow_counts)} darkMode={darkMode} />;
+  if (job && hasBaseline) {
+    const jobTotals = flowTotals(normalizeFlowCounts(job.result?.flow_counts ?? job.flow_counts));
+    return <BaselineFlowPanel series={flowSeries} entryTotal={jobTotals.entry} exitTotal={jobTotals.exit} />;
+  }
   return <section className="panel video-status-panel" aria-label="视频任务状态">
     <div className="panel-heading"><div><p className="section-kicker">视频任务</p><h2>检测状态</h2></div></div>
     {job ? <div className="video-task-status"><div className="job-status-line"><span className={`job-state ${job.status}`}>{job.status}</span><strong>{job.message}</strong><span>{Math.round(job.progress)}%</span></div><div className="progress-track"><span style={{ width: `${job.progress}%` }} /></div></div> : <EmptyState icon={<Video size={30} />} label="等待选择视频" />}
