@@ -63,6 +63,7 @@ const API_BASE_URL = configuredApiBaseUrl
   : window.location.origin;
 const AUTH_TOKEN_KEY = 'traffic-auth-token';
 const AUTH_CLICK_SOUND_URL = '/audio/login-click.mp3';
+const AUTH_FAILURE_SOUND_URL = '/audio/login-failed.mp3';
 const IMAGE_ACCEPT = '.jpg,.jpeg,.png,.bmp,image/jpeg,image/png,image/bmp';
 const VIDEO_ACCEPT = '.mp4,.avi,.mov,.mkv,video/mp4,video/x-msvideo,video/quicktime,video/x-matroska';
 const DATASET_ACCEPT = '.zip,application/zip';
@@ -1324,6 +1325,14 @@ function AuthPanel({
     sound.currentTime = 0;
     void sound.play().catch(() => undefined);
   };
+
+  useEffect(() => {
+    if (!message) return;
+    const sound = new Audio(AUTH_FAILURE_SOUND_URL);
+    sound.currentTime = 0;
+    sound.volume = 0.65;
+    void sound.play().catch(() => undefined);
+  }, [message]);
   const signalState = formReady ? 'green' : form.username.trim() || form.password ? 'yellow' : 'red';
   const signalLabel = signalState === 'green' ? '登录条件已满足' : signalState === 'yellow' ? '正在填写登录信息' : '等待填写登录信息';
 
