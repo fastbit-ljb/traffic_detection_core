@@ -405,7 +405,7 @@ h1, h2, p { margin-top: 0; } h1 { margin-bottom: 0; color: #17212b; font-size: 2
 
 /* 日夜滑块主题开关 */
 .dn-switch { position: relative; display: inline-flex; width: 60px; height: 34px; background: none; border: none; padding: 0; cursor: pointer; }
-.dn-slider { position: absolute; inset: 0; z-index: 0; overflow: hidden; background-color: #2196f3; border-radius: 34px; transition: background-color .4s; }
+.dn-slider { position: absolute; inset: 0; z-index: 0; overflow: hidden; background-color: #ffffff; box-shadow: inset 0 0 0 1px rgba(31, 41, 55, .08); border-radius: 34px; transition: background-color .4s; }
 .dn-switch[aria-checked='true'] .dn-slider { background-color: #000000; }
 .dn-switch:focus-visible .dn-slider { box-shadow: 0 0 1px 2px #2196f3; }
 .dn-sun-moon { position: absolute; left: 4px; bottom: 4px; width: 26px; height: 26px; background-color: #fee600; border-radius: 50%; transition: transform .4s, background-color .4s; }
