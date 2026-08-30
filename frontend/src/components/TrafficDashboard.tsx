@@ -22,6 +22,7 @@ import {
   ArrowUp,
   Camera,
   Car,
+  Check,
   ChevronRight,
   ChevronsLeft,
   ChevronsRight,
@@ -52,15 +53,6 @@ import {
   Zap,
 } from 'lucide-react';
 import { PillNav, type PillNavItem } from './PillNav';
-import {
-  Select,
-  SelectContent,
-  SelectGroup,
-  SelectItem,
-  SelectLabel,
-  SelectTrigger,
-  SelectValue,
-} from './ui/select';
 import { ElasticSlider } from './ui/ElasticSlider';
 import { GooeyDeviceSwitch } from './ui/GooeyDeviceSwitch';
 
@@ -1839,15 +1831,10 @@ function ModelManagementCard({ models, deviceStatus, uploadBusy, deviceBusy, onM
     <InferenceDeviceSwitch status={deviceStatus} busy={deviceBusy} onSelect={(device) => void onDeviceSelect(device)} />
     <div className="field-label model-select-field">
       <span>当前模型</span>
-      <Select className="model-dropdown" selectedKey={activeModel?.id ?? null} onSelectionChange={(id) => void onActivate(String(id))} isDisabled={!models.length || uploadBusy} placeholder="暂无可选模型" aria-label="当前模型">
-        <SelectTrigger className="model-dropdown-trigger"><SelectValue /></SelectTrigger>
-        <SelectContent className="model-dropdown-popover">
-          <SelectGroup>
-            <SelectLabel>可用模型</SelectLabel>
-            {models.map((model) => <SelectItem className="model-dropdown-item" key={model.id} id={model.id} textValue={model.name}><span className="model-dropdown-option"><strong>{model.name}</strong><small>{model.source === 'official' ? '官方预训练' : model.source === 'upload' ? '自定义权重' : model.source}</small></span></SelectItem>)}
-          </SelectGroup>
-        </SelectContent>
-      </Select>
+      <div className="model-static-list" role="radiogroup" aria-label="当前模型">
+        {models.map((model) => <button key={model.id} type="button" role="radio" aria-checked={model.is_active} className={model.is_active ? 'model-static-item selected' : 'model-static-item'} disabled={uploadBusy} onClick={() => void onActivate(String(model.id))}><span className="model-static-info"><strong>{model.name}</strong><small>{model.source === 'official' ? '官方预训练' : model.source === 'upload' ? '自定义权重' : model.source}</small></span><span className={model.is_active ? 'model-static-check checked' : 'model-static-check'} aria-hidden="true">{model.is_active && <Check size={12} strokeWidth={3} />}</span></button>)}
+        {!models.length && <p className="model-static-empty">暂无可选模型</p>}
+      </div>
     </div>
     {activeModel && <div className="selected-model-summary"><span>当前使用</span><small>{activeModel.source} · {formatTime(activeModel.created_at)}</small></div>}
     {showBaselineControls && <BaselineControls config={baselineConfig} onChange={onBaselineChange} compact />}
