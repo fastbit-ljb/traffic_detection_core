@@ -1441,14 +1441,15 @@ function AuthPanel({
               <p>{mode === 'login' ? '请输入你的账号和密码' : '填写账号和密码以开始使用'}</p>
             </div>
             <form className="auth-form" onSubmit={onSubmit}>
-              <label className={focusedField === 'username' ? 'auth-input-field focused' : 'auth-input-field'}>
-                <span>账号</span>
-                <span className="auth-input-wrapper"><input ref={usernameInputRef} value={form.username} autoComplete="username" onFocus={startUsernameInteraction} onBlur={endUsernameInteraction} onChange={(event) => onChange({ ...form, username: event.target.value })} placeholder="输入用户名" minLength={3} maxLength={32} required /></span>
-              </label>
-              <label className={focusedField === 'password' ? 'auth-input-field focused' : 'auth-input-field'}>
-                <span>密码</span>
-                <span className="auth-input-wrapper"><input value={form.password} type={showPassword ? 'text' : 'password'} autoComplete={mode === 'login' ? 'current-password' : 'new-password'} onFocus={() => setFocusedField('password')} onBlur={() => setFocusedField(null)} onChange={(event) => onChange({ ...form, password: event.target.value })} placeholder="输入密码" minLength={8} required /><button className="auth-password-toggle" type="button" aria-label={showPassword ? '隐藏密码' : '显示密码'} title={showPassword ? '隐藏密码' : '显示密码'} onMouseDown={(event) => event.preventDefault()} onClick={togglePassword}>{showPassword ? <EyeOff size={20} aria-hidden="true" /> : <Eye size={20} aria-hidden="true" />}</button></span>
-              </label>
+              <div className="auth-input-field">
+                <input ref={usernameInputRef} id="auth-username-input" value={form.username} autoComplete="username" onFocus={startUsernameInteraction} onBlur={endUsernameInteraction} onChange={(event) => onChange({ ...form, username: event.target.value })} placeholder=" " minLength={3} maxLength={32} required />
+                <label className="auth-float-label" htmlFor="auth-username-input" aria-hidden="true">{'账号'.split('').map((character, index) => <span key={index} style={{ transitionDelay: `${index * 60}ms` }}>{character}</span>)}</label>
+              </div>
+              <div className="auth-input-field">
+                <input id="auth-password-input" value={form.password} type={showPassword ? 'text' : 'password'} autoComplete={mode === 'login' ? 'current-password' : 'new-password'} onFocus={() => setFocusedField('password')} onBlur={() => setFocusedField(null)} onChange={(event) => onChange({ ...form, password: event.target.value })} placeholder=" " minLength={8} required />
+                <label className="auth-float-label" htmlFor="auth-password-input" aria-hidden="true">{'密码'.split('').map((character, index) => <span key={index} style={{ transitionDelay: `${index * 60}ms` }}>{character}</span>)}</label>
+                <button className="auth-password-toggle" type="button" aria-label={showPassword ? '隐藏密码' : '显示密码'} title={showPassword ? '隐藏密码' : '显示密码'} onMouseDown={(event) => event.preventDefault()} onClick={togglePassword}>{showPassword ? <EyeOff size={20} aria-hidden="true" /> : <Eye size={20} aria-hidden="true" />}</button>
+              </div>
               {message && <p className="auth-error" role="alert">{message}</p>}
               <button className={formReady ? 'auth-submit is-ready' : 'auth-submit'} type="submit" disabled={busy || leaving || !formReady} onClick={playAuthClickSound}>
                 {busy ? <Loader2 className="spin" size={17} aria-hidden="true" /> : <><span className="auth-submit-label">{mode === 'login' ? '登录' : '注册'}</span><span className="auth-submit-hover">{mode === 'login' ? '登录' : '注册'}<ArrowRight size={18} aria-hidden="true" /></span></>}
