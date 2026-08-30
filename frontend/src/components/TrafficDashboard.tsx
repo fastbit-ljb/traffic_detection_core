@@ -64,6 +64,12 @@ const API_BASE_URL = configuredApiBaseUrl
 const AUTH_TOKEN_KEY = 'traffic-auth-token';
 const AUTH_CLICK_SOUND_URL = '/audio/login-click.mp3';
 const AUTH_FAILURE_SOUND_URL = '/audio/login-failed.mp3';
+const playAuthSound = (url: string, volume = 1) => {
+  const sound = new Audio(url);
+  sound.currentTime = 0;
+  sound.volume = volume;
+  void sound.play().catch(() => undefined);
+};
 const IMAGE_ACCEPT = '.jpg,.jpeg,.png,.bmp,image/jpeg,image/png,image/bmp';
 const VIDEO_ACCEPT = '.mp4,.avi,.mov,.mkv,video/mp4,video/x-msvideo,video/quicktime,video/x-matroska';
 const DATASET_ACCEPT = '.zip,application/zip';
@@ -379,6 +385,7 @@ export function TrafficDashboard() {
         body: JSON.stringify(authForm),
       });
       window.localStorage.setItem(AUTH_TOKEN_KEY, response.access_token);
+      playAuthSound(AUTH_CLICK_SOUND_URL);
       const completeAuthentication = () => {
         setAuthUser(response.user);
         setAuthForm({ username: '', password: '' });
@@ -1320,18 +1327,9 @@ function AuthPanel({
   const orangePupilRef = useRef<HTMLElement>(null);
   const yellowPupilRef = useRef<HTMLElement>(null);
   const formReady = form.username.trim().length >= 3 && form.password.length >= 8;
-  const playAuthClickSound = () => {
-    const sound = new Audio(AUTH_CLICK_SOUND_URL);
-    sound.currentTime = 0;
-    void sound.play().catch(() => undefined);
-  };
-
   useEffect(() => {
     if (!message) return;
-    const sound = new Audio(AUTH_FAILURE_SOUND_URL);
-    sound.currentTime = 0;
-    sound.volume = 0.65;
-    void sound.play().catch(() => undefined);
+    playAuthSound(AUTH_FAILURE_SOUND_URL, 0.65);
   }, [message]);
   const signalState = formReady ? 'green' : form.username.trim() || form.password ? 'yellow' : 'red';
   const signalLabel = signalState === 'green' ? '登录条件已满足' : signalState === 'yellow' ? '正在填写登录信息' : '等待填写登录信息';
@@ -1575,7 +1573,7 @@ function AuthPanel({
                 <button className="auth-password-toggle" type="button" aria-label={showPassword ? '隐藏密码' : '显示密码'} title={showPassword ? '隐藏密码' : '显示密码'} onMouseDown={(event) => event.preventDefault()} onClick={togglePassword}>{showPassword ? <EyeOff size={20} aria-hidden="true" /> : <Eye size={20} aria-hidden="true" />}</button>
               </div>
               {message && <p className="auth-error" role="alert">{message}</p>}
-              <button className={formReady ? 'auth-submit is-ready' : 'auth-submit'} type="submit" disabled={busy || leaving || !formReady} onClick={playAuthClickSound}>
+              <button className={formReady ? 'auth-submit is-ready' : 'auth-submit'} type="submit" disabled={busy || leaving || !formReady}>
                 {busy ? <Loader2 className="spin" size={17} aria-hidden="true" /> : <><span className="auth-submit-label">{mode === 'login' ? '登录' : '注册'}</span><span className="auth-submit-hover">{mode === 'login' ? '登录' : '注册'}<ArrowRight size={18} aria-hidden="true" /></span></>}
               </button>
             </form>
