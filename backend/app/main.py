@@ -19,7 +19,6 @@ from fastapi import (
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.responses import FileResponse, JSONResponse
-from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from fastapi.encoders import jsonable_encoder
 from pydantic import BaseModel, Field
 
@@ -30,12 +29,8 @@ from .core.metrics import get_metrics_response, track_emergency_override, update
 from .core.security import (
     SecurityManager,
     check_rate_limit,
-    create_access_token,
-    get_password_hash,
     sanitize_filename,
     validate_file_type,
-    verify_password_hash,
-    verify_token,
 )
 
 # Import middleware
@@ -181,11 +176,6 @@ class HistoryDeletionRequest(BaseModel):
     ids: List[str] = Field(min_length=1, max_length=50)
 
 
-class AuthCredentials(BaseModel):
-    username: str = Field(min_length=3, max_length=32)
-    password: str = Field(min_length=8, max_length=128)
-
-
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan management with comprehensive error handling"""
@@ -291,9 +281,6 @@ app = FastAPI(
     redoc_url="/api/redoc" if settings.debug_mode else None
 )
 
-# Security
-security = HTTPBearer(auto_error=False)
-
 # Add middleware in correct order (reverse order of execution)
 app.add_middleware(HealthCheckMiddleware)
 app.add_middleware(SecurityMiddleware)
@@ -373,70 +360,6 @@ async def get_project_repository() -> ProjectRepository:
     return project_repository
 
 
-def _public_user(user: Dict[str, Any]) -> Dict[str, Any]:
-    return {key: user[key] for key in ("id", "username", "created_at")}
-
-
-def _normalize_username(username: str) -> str:
-    normalized = username.strip().lower()
-    if not normalized or any(not (character.isalnum() or character in "_-.") for character in normalized):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="用户名只能包含字母、数字、下划线、短横线或点",
-        )
-    return normalized
-
-
-async def get_current_user(
-    credentials: Optional[HTTPAuthorizationCredentials] = Depends(security),
-    repository: ProjectRepository = Depends(get_project_repository),
-) -> Dict[str, Any]:
-    """Resolve the bearer token and return the active account."""
-    if not credentials:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="请先登录")
-    payload = verify_token(credentials.credentials)
-    user_id = payload.get("sub") if payload else None
-    user = repository.get_user(user_id) if user_id else None
-    if not user:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="登录已失效，请重新登录")
-    return user
-
-
-def _dependency_user_id(current_user: object) -> Optional[str]:
-    """Keep direct service-level tests backward compatible with dependency defaults."""
-    return current_user.get("id") if isinstance(current_user, dict) else None
-
-
-@app.post("/api/auth/register")
-async def register_account(
-    credentials: AuthCredentials,
-    repository: ProjectRepository = Depends(get_project_repository),
-):
-    username = _normalize_username(credentials.username)
-    user = repository.create_user(username, get_password_hash(credentials.password))
-    if not user:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="用户名已存在")
-    token = create_access_token({"sub": user["id"], "username": user["username"]})
-    return {"access_token": token, "token_type": "bearer", "user": _public_user(user)}
-
-
-@app.post("/api/auth/login")
-async def login_account(
-    credentials: AuthCredentials,
-    repository: ProjectRepository = Depends(get_project_repository),
-):
-    username = _normalize_username(credentials.username)
-    user = repository.get_user_by_username(username)
-    if not user or not verify_password_hash(credentials.password, user["password_hash"]):
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="用户名或密码错误")
-    token = create_access_token({"sub": user["id"], "username": user["username"]})
-    return {"access_token": token, "token_type": "bearer", "user": _public_user(user)}
-
-
-@app.get("/api/auth/me")
-async def current_account(current_user: Dict[str, Any] = Depends(get_current_user)):
-    return _public_user(current_user)
-
 
 # Metrics endpoint
 @app.get("/metrics")
@@ -449,13 +372,7 @@ async def metrics_endpoint():
 @app.websocket("/ws/traffic-updates")
 async def websocket_endpoint(websocket: WebSocket):
     """WebSocket endpoint for real-time traffic updates"""
-    token = websocket.query_params.get("token")
-    payload = verify_token(token) if token else None
-    user_id = payload.get("sub") if payload else None
-    if not user_id or not project_repository or not project_repository.get_user(user_id):
-        await websocket.close(code=4401, reason="请先登录")
-        return
-    await websocket_manager.connect(websocket, user_id)
+    await websocket_manager.connect(websocket, None)
     
     try:
         while True:
@@ -501,7 +418,6 @@ async def detect_vehicles_endpoint(
     detector: IntelligentVehicleDetector = Depends(get_vehicle_detector),
     manager: AdaptiveTrafficManager = Depends(get_traffic_manager),
     analytics: TrafficAnalyticsService = Depends(get_analytics_service),
-    current_user: Dict[str, Any] = Depends(get_current_user),
 ):
     """Analyze traffic image and detect vehicles using YOLOv8"""
     try:
@@ -574,7 +490,7 @@ async def detect_vehicles_endpoint(
                 output_path=detection_result.annotated_image_path,
                 model_name=active_model["name"] if active_model else None,
                 original_path=str(original_path),
-                user_id=_dependency_user_id(current_user),
+                user_id=None,
             )
 
         # Broadcast updates to WebSocket clients
@@ -585,7 +501,7 @@ async def detect_vehicles_endpoint(
                 "data": jsonable_encoder(detection_result),
                 "timestamp": datetime.now(timezone.utc).isoformat()
             },
-            user_id=_dependency_user_id(current_user),
+            user_id=None,
         )
         
         # Clean up temporary file
@@ -612,18 +528,16 @@ async def detect_vehicles_endpoint(
 async def list_detection_history(
     limit: int = 50,
     repository: ProjectRepository = Depends(get_project_repository),
-    current_user: Dict[str, Any] = Depends(get_current_user),
 ):
-    return repository.list_history(max(1, min(limit, 200)), _dependency_user_id(current_user))
+    return repository.list_history(max(1, min(limit, 200)), None)
 
 
 @app.delete("/api/history")
 async def delete_detection_history_entries(
     deletion_request: HistoryDeletionRequest,
     repository: ProjectRepository = Depends(get_project_repository),
-    current_user: Dict[str, Any] = Depends(get_current_user),
 ):
-    deleted_ids = repository.delete_history_entries(deletion_request.ids, _dependency_user_id(current_user))
+    deleted_ids = repository.delete_history_entries(deletion_request.ids, None)
     return {"deleted_ids": deleted_ids}
 
 
@@ -631,9 +545,8 @@ async def delete_detection_history_entries(
 async def delete_detection_history(
     history_id: str,
     repository: ProjectRepository = Depends(get_project_repository),
-    current_user: Dict[str, Any] = Depends(get_current_user),
 ):
-    history_entry = repository.delete_history(history_id, _dependency_user_id(current_user))
+    history_entry = repository.delete_history(history_id, None)
     if not history_entry:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="检测记录不存在")
     return {"id": history_entry["id"]}
@@ -725,21 +638,19 @@ async def activate_model(
 @app.get("/api/training/jobs")
 async def list_training_jobs(
     repository: ProjectRepository = Depends(get_project_repository),
-    current_user: Dict[str, Any] = Depends(get_current_user),
 ):
     return repository.list_jobs(
-        kind="training", active_only=True, user_id=_dependency_user_id(current_user)
+        kind="training", active_only=True, user_id=None
     )
 
 
 @app.get("/api/training/runs")
 async def list_training_runs(
     repository: ProjectRepository = Depends(get_project_repository),
-    current_user: Dict[str, Any] = Depends(get_current_user),
 ):
     """Return completed and failed runs so thesis metrics remain traceable after restart."""
     return repository.list_jobs(
-        kind="training", limit=12, user_id=_dependency_user_id(current_user)
+        kind="training", limit=12, user_id=None
     )
 
 
@@ -747,7 +658,6 @@ async def list_training_runs(
 async def start_training_job(
     request: TrainingJobRequest,
     repository: ProjectRepository = Depends(get_project_repository),
-    current_user: Dict[str, Any] = Depends(get_current_user),
 ):
     if not training_service:
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="训练服务不可用")
@@ -758,7 +668,7 @@ async def start_training_job(
     if not model:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="基础模型不存在")
     config = {"epochs": request.epochs, "batch": request.batch, "imgsz": request.imgsz}
-    user_id = _dependency_user_id(current_user)
+    user_id = None
     if user_id:
         return training_service.submit(dataset, model, config, user_id=user_id)
     # Preserve direct service-level calls used by maintenance scripts and tests.
@@ -768,11 +678,10 @@ async def start_training_job(
 @app.get("/api/experiments")
 async def list_comparison_experiments(
     repository: ProjectRepository = Depends(get_project_repository),
-    current_user: Dict[str, Any] = Depends(get_current_user),
 ):
     """List persisted validation-set comparison experiments."""
     return repository.list_jobs(
-        kind="benchmark", limit=12, user_id=_dependency_user_id(current_user)
+        kind="benchmark", limit=12, user_id=None
     )
 
 
@@ -780,7 +689,6 @@ async def list_comparison_experiments(
 async def compare_models(
     request: ModelComparisonRequest,
     repository: ProjectRepository = Depends(get_project_repository),
-    current_user: Dict[str, Any] = Depends(get_current_user),
 ):
     if not training_service:
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="训练服务不可用")
@@ -796,7 +704,7 @@ async def compare_models(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="存在未找到的模型")
     selected_models = [model for model in models if model is not None]
     config = {"batch": request.batch, "imgsz": request.imgsz}
-    user_id = _dependency_user_id(current_user)
+    user_id = None
     if user_id:
         return training_service.submit_comparison(dataset, selected_models, config, user_id=user_id)
     # Preserve direct service-level calls used by maintenance scripts and tests.
@@ -811,7 +719,6 @@ async def detect_video(
     baseline_direction: str = Form(""),
     baseline_position: float = Form(0.5),
     repository: ProjectRepository = Depends(get_project_repository),
-    current_user: Dict[str, Any] = Depends(get_current_user),
 ):
     if not video_processing_service:
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="视频服务不可用")
@@ -831,7 +738,7 @@ async def detect_video(
         filename,
         active_model["name"] if active_model else "unknown",
         baseline_config,
-        user_id=_dependency_user_id(current_user),
+        user_id=None,
     )
 
 
@@ -839,9 +746,8 @@ async def detect_video(
 async def get_video_job(
     job_id: str,
     repository: ProjectRepository = Depends(get_project_repository),
-    current_user: Dict[str, Any] = Depends(get_current_user),
 ):
-    job = repository.get_job(job_id, _dependency_user_id(current_user))
+    job = repository.get_job(job_id, None)
     if not job or job["kind"] != "video":
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="视频任务不存在")
     return job
@@ -1029,20 +935,10 @@ except Exception as e:
 async def get_owned_media(
     media_kind: Literal["images", "videos"],
     filename: str,
-    token: Optional[str] = None,
-    credentials: Optional[HTTPAuthorizationCredentials] = Depends(security),
-    repository: ProjectRepository = Depends(get_project_repository),
 ):
-    """Return generated media only when it belongs to the authenticated user."""
-    access_token = credentials.credentials if credentials else token
-    payload = verify_token(access_token) if access_token else None
-    user_id = payload.get("sub") if payload else None
-    if not user_id or not repository.get_user(user_id):
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="请先登录")
+    """Serve generated media for the dashboard."""
     if Path(filename).name != filename or filename in {".", ".."}:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="媒体文件名无效")
-    if not repository.user_owns_media(user_id, filename):
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="媒体文件不存在")
     root = output_images_directory if media_kind == "images" else output_videos_directory
     media_path = (root / filename).resolve()
     if not media_path.is_relative_to(root.resolve()) or not media_path.is_file():
