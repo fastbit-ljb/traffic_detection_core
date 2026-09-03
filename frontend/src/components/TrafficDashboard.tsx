@@ -421,10 +421,14 @@ export function TrafficDashboard() {
     const rect = event.currentTarget.getBoundingClientRect();
     const x = rect.left + rect.width / 2;
     const y = rect.top + rect.height / 2;
+    // 用百分比坐标:非整数 devicePixelRatio 下 px 单位会被部分 Chromium 按物理像素解释,圆心会偏向左上
+    const ox = `${((x / window.innerWidth) * 100).toFixed(2)}%`;
+    const oy = `${((y / window.innerHeight) * 100).toFixed(2)}%`;
+    console.log('[theme-origin]', JSON.stringify({ x: +x.toFixed(1), y: +y.toFixed(1), origin: [ox, oy], rect: { left: +rect.left.toFixed(1), top: +rect.top.toFixed(1), w: +rect.width.toFixed(1), h: +rect.height.toFixed(1) }, click: { x: event.clientX, y: event.clientY }, dpr: window.devicePixelRatio, inner: [window.innerWidth, window.innerHeight], zoom: Math.round((window.outerWidth / window.innerWidth) * 10) / 10 }));
     const radius = Math.hypot(Math.max(x, window.innerWidth - x), Math.max(y, window.innerHeight - y));
     const transition = transitionDocument.startViewTransition(commitTheme);
     transition.ready.then(() => {
-      const clipPath = [`circle(0px at ${x}px ${y}px)`, `circle(${radius}px at ${x}px ${y}px)`];
+      const clipPath = [`circle(0% at ${ox} ${oy})`, `circle(${Math.ceil((radius / Math.hypot(window.innerWidth, window.innerHeight)) * 200)}% at ${ox} ${oy})`];
       document.documentElement.animate(
         { clipPath: nextTheme === 'dark' ? clipPath : clipPath.reverse() },
         { duration: 600, easing: 'ease-in-out', pseudoElement: nextTheme === 'dark' ? '::view-transition-new(root)' : '::view-transition-old(root)' },
