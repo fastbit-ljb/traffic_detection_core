@@ -49,6 +49,16 @@ server {
         proxy_set_header Host $host;
     }
 
+    # 入口文件永不缓存,保证发版立即生效;带哈希的静态资源永久缓存
+    location = /index.html {
+        add_header Cache-Control "no-cache, must-revalidate";
+        try_files $uri =404;
+    }
+
+    location /assets/ {
+        add_header Cache-Control "public, max-age=31536000, immutable";
+    }
+
     location / {
         try_files $uri $uri/ /index.html;
     }
